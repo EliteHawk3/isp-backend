@@ -2,54 +2,81 @@ const bcrypt = require("bcrypt");
 const User = require("../models/User");
 const generateToken = require("../utils/generateToken");
 
-// Register a user
+// Register a User
 const registerUser = async (req, res) => {
+  try {
+    const { name, phone, password, address } = req.body;
+
+    // Validate input
+    if (password.length !== 6) {
+      return res.status(400).json({ message: "Password must be exactly 6 characters long." });
+    }
+    if (!address) {
+      return res.status(400).json({ message: "Address is required." });
+    }
+
+    // Check if phone number is already registered
+    const existingUser = await User.findOne({ phone });
+    if (existingUser) {
+      return res.status(400).json({ message: "Phone number is already registered." });
+    }
+
+    // Hash password and create new user
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const newUser = new User({ name, phone, password: hashedPassword, address });
+    await newUser.save();
+
+    res.status(201).json({ message: "User registered successfully", user: newUser });
+  } catch (err) {
+    console.error("Registration error:", err.message);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+};
+
+const loginUser = async (req, res) => {
     try {
-      const { name, phone, password } = req.body;
+      const { phone, password } = req.body;
   
-      // Check if the password is exactly 8 characters long
-      if (password.length < 8 || password.length > 8) {
-        return res
-          .status(400)
-          .json({ message: "Password must be exactly 8 characters long" });
+      if (!phone || !password) {
+        return res.status(400).json({ message: "Phone and password are required." });
       }
   
-      // Hash the password
-      const hashedPassword = await bcrypt.hash(password, 10);
+      // Find user and explicitly include the password
+      const user = await User.findOne({ phone }).select("+password");
+      if (!user) {
+        return res.status(404).json({ message: "User not found." });
+      }
   
-      // Create a new user
-      const newUser = new User({ name, phone, password: hashedPassword });
-      await newUser.save();
+      // Debugging: Log user data to ensure retrieval is correct
+      console.log("User retrieved from DB:", user);
   
-      res.status(201).json({ message: "User registered successfully", user: newUser });
+      // Compare password
+      const isMatch = await bcrypt.compare(password, user.password);
+      if (!isMatch) {
+        return res.status(400).json({ message: "Invalid credentials." });
+      }
+  
+      // Generate token
+      const token = generateToken(user._id, user.role);
+  
+      // Return success response
+      res.status(200).json({
+        message: "Login successful",
+        token,
+        user: {
+          id: user._id,
+          name: user.name,
+          phone: user.phone,
+          address: user.address,
+          role: user.role,
+        },
+      });
     } catch (err) {
-      res.status(400).json({ error: err.message });
+      console.error("Login error:", err);
+      res.status(500).json({ error: "Internal Server Error" });
     }
   };
   
-  
-
-// Login a user
-const loginUser = async (req, res) => {
-  try {
-    const { phone, password } = req.body;
-
-    const user = await User.findOne({ phone });
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
-    }
-
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(400).json({ message: "Invalid credentials" });
-    }
-
-    const token = generateToken(user._id);
-    res.status(200).json({ message: "Login successful", token });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-};
 
 // Send OTP
 const sendOtp = async (req, res) => {
@@ -58,19 +85,22 @@ const sendOtp = async (req, res) => {
 
     const user = await User.findOne({ phone });
     if (!user) {
-      return res.status(404).json({ message: "User not found" });
+      return res.status(404).json({ message: "User not found." });
     }
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
+    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes validity
 
     user.otp = otp;
     user.otpExpiry = otpExpiry;
     await user.save();
 
-    res.status(200).json({ message: "OTP sent successfully", otp }); // Only for in-app usage
+    console.log(`OTP for ${phone}: ${otp}`); // For development/testing
+
+    res.status(200).json({ message: "OTP sent successfully." });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("Send OTP error:", err.message);
+    res.status(500).json({ error: "Internal Server Error" });
   }
 };
 
@@ -81,53 +111,66 @@ const verifyOtp = async (req, res) => {
 
     const user = await User.findOne({ phone });
     if (!user) {
-      return res.status(404).json({ message: "User not found" });
+      return res.status(404).json({ message: "User not found." });
     }
 
     if (user.otp !== otp) {
-      return res.status(400).json({ message: "Invalid OTP" });
+      return res.status(400).json({ message: "Invalid OTP." });
     }
 
     if (user.otpExpiry < Date.now()) {
-      return res.status(400).json({ message: "OTP has expired" });
+      return res.status(400).json({ message: "OTP has expired." });
     }
 
     user.otp = null;
     user.otpExpiry = null;
     await user.save();
 
-    res.status(200).json({ message: "OTP verified successfully" });
+    res.status(200).json({ message: "OTP verified successfully." });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("Verify OTP error:", err.message);
+    res.status(500).json({ error: "Internal Server Error" });
   }
 };
 
+// Update User Profile
 const updateUserProfile = async (req, res) => {
-    try {
-      const user = await User.findById(req.user);
-  
-      if (!user) {
-        return res.status(404).json({ message: "User not found" });
-      }
-  
-      const { name, phone } = req.body;
-  
-      // Update only provided fields
-      if (name) user.name = name;
-      if (phone) user.phone = phone;
-  
-      const updatedUser = await user.save();
-  
-      res.status(200).json({
-        message: "Profile updated successfully",
-        user: {
-          name: updatedUser.name,
-          phone: updatedUser.phone,
-        },
-      });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
+  try {
+    const user = await User.findById(req.user);
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found." });
     }
-  };
-  
-module.exports = { registerUser, loginUser, sendOtp, verifyOtp, updateUserProfile };
+
+    const { name, phone } = req.body;
+
+    if (req.body.address) {
+      return res.status(400).json({ message: "Address cannot be updated by the user." });
+    }
+
+    if (name) user.name = name;
+    if (phone) user.phone = phone;
+
+    const updatedUser = await user.save();
+
+    res.status(200).json({
+      message: "Profile updated successfully.",
+      user: {
+        name: updatedUser.name,
+        phone: updatedUser.phone,
+        address: updatedUser.address,
+      },
+    });
+  } catch (err) {
+    console.error("Update profile error:", err.message);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+};
+
+module.exports = {
+  registerUser,
+  loginUser,
+  sendOtp,
+  verifyOtp,
+  updateUserProfile,
+};

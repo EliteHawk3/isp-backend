@@ -34,48 +34,52 @@ const registerUser = async (req, res) => {
 };
 
 const loginUser = async (req, res) => {
-    try {
-      const { phone, password } = req.body;
-  
-      if (!phone || !password) {
-        return res.status(400).json({ message: "Phone and password are required." });
-      }
-  
-      // Find user and explicitly include the password
-      const user = await User.findOne({ phone }).select("+password");
-      if (!user) {
-        return res.status(404).json({ message: "User not found." });
-      }
-  
-      // Debugging: Log user data to ensure retrieval is correct
-      console.log("User retrieved from DB:", user);
-  
-      // Compare password
-      const isMatch = await bcrypt.compare(password, user.password);
-      if (!isMatch) {
-        return res.status(400).json({ message: "Invalid credentials." });
-      }
-  
-      // Generate token
-      const token = generateToken(user._id, user.role);
-  
-      // Return success response
-      res.status(200).json({
-        message: "Login successful",
-        token,
-        user: {
-          id: user._id,
-          name: user.name,
-          phone: user.phone,
-          address: user.address,
-          role: user.role,
-        },
-      });
-    } catch (err) {
-      console.error("Login error:", err);
-      res.status(500).json({ error: "Internal Server Error" });
+  try {
+    const { phone, password } = req.body;
+
+    if (!phone || !password) {
+      return res.status(400).json({ message: "Phone and password are required." });
     }
-  };
+
+    // Find user and include the password
+    const user = await User.findOne({ phone }).select("+password");
+    if (!user) {
+      return res.status(404).json({ message: "User not found." });
+    }
+
+    // Debug: Log user data
+    console.log("User retrieved from DB:", user);
+
+    // Compare passwords
+    const isMatch = await bcrypt.compare(password, user.password);
+    console.log("Password comparison result:", isMatch);
+
+    if (!isMatch) {
+      return res.status(400).json({ message: "Invalid credentials." });
+    }
+
+    // Generate JWT
+    const token = generateToken(user._id, user.role);
+    console.log("Generated token:", token);
+
+    // Return success response
+    res.status(200).json({
+      message: "Login successful",
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        phone: user.phone,
+        address: user.address,
+        role: user.role,
+      },
+    });
+  } catch (err) {
+    console.error("Login error:", err.message);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+};
+
   
 
 // Send OTP

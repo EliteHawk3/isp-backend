@@ -64,6 +64,32 @@ router.get("/profile", protect, async (req, res) => {
 
 router.put("/profile", protect, updateUserProfile);
 
+// New Dashboard Route
+router.get("/dashboard", protect, async (req, res) => {
+  try {
+    // Fetch user data for dashboard view
+    const user = await User.findById(req.user.id)
+      .select("name phone packageName paymentStatus dueDate notifications");
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.status(200).json({
+      profile: {
+        name: user.name,
+        phone: user.phone,
+        packageName: user.packageName,
+        paymentStatus: user.paymentStatus,
+        dueDate: user.dueDate,
+      },
+      notifications: user.notifications,
+    });
+  } catch (err) {
+    handleServerError(res, err, "Error fetching dashboard data");
+  }
+});
+
 // Fallback route for undefined endpoints
 router.all("*", (req, res) => {
   res.status(404).json({ message: "Endpoint not found" });

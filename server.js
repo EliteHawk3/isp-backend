@@ -4,6 +4,7 @@ const cors = require("cors");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const morgan = require("morgan");
+const mongoose = require("mongoose");
 const connectDB = require("./config/db");
 const userRoutes = require("./routes/userRoutes");
 
@@ -40,6 +41,7 @@ app.use("/api/users", userRoutes);
 // Health Check Endpoint
 app.get("/health", async (req, res) => {
   const dbStatus = mongoose.connection.readyState === 1 ? "healthy" : "unhealthy";
+  console.log(`Health Check - DB Status: ${dbStatus}`);
   res.status(200).json({ message: "Server is running!", dbStatus });
 });
 
@@ -56,6 +58,12 @@ process.on("SIGINT", async () => {
   console.log("Shutting down server...");
   await mongoose.connection.close();
   console.log("MongoDB connection closed.");
+  process.exit(0);
+});
+
+process.on("SIGTERM", async () => {
+  console.log("Shutting down gracefully...");
+  await mongoose.connection.close();
   process.exit(0);
 });
 

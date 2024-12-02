@@ -35,13 +35,17 @@ const apiLimiter = rateLimit({
 });
 app.use("/api", apiLimiter);
 
+// Root Route
+app.get("/", (req, res) => {
+  res.status(200).json({ message: "Welcome to the ISP Management API!" });
+});
+
 // Routes
 app.use("/api/users", userRoutes);
 
 // Health Check Endpoint
 app.get("/health", async (req, res) => {
   const dbStatus = mongoose.connection.readyState === 1 ? "healthy" : "unhealthy";
-  console.log(`Health Check - DB Status: ${dbStatus}`);
   res.status(200).json({ message: "Server is running!", dbStatus });
 });
 

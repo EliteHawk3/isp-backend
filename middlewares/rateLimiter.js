@@ -1,39 +1,43 @@
 const rateLimit = require("express-rate-limit");
 
 // Helper function for dynamic rate limits
-const dynamicRateLimit = (req, res) => {
+const dynamicRateLimit = (req) => {
   if (req.user && req.user.role === "admin") {
     return 100; // Admins get higher limits
   }
   return 3; // Default limit
 };
 
-// OTP rate limiter: Prevents abuse of OTP requests
+// Custom logging for abuse attempts
+const abuseLogger = (req) => {
+  console.warn(`[RATE LIMIT] Exceeded for IP: ${req.ip} | Endpoint: ${req.originalUrl} | Time: ${new Date().toISOString()}`);
+};
+
+// OTP rate limiter
 const otpLimiter = rateLimit({
-  windowMs: 10 * 60 * 1000, // 10 minutes window
-  max: dynamicRateLimit, // Use dynamic rate limit based on user roles
-  standardHeaders: true, // Include rate limit info in the `RateLimit-*` headers
-  legacyHeaders: false, // Disable `X-RateLimit-*` headers
+  windowMs: 10 * 60 * 1000, // 10-minute window
+  max: (req) => dynamicRateLimit(req), // Dynamic rate limit
+  standardHeaders: true, // Include standard rate limit headers
+  legacyHeaders: false, // Disable legacy headers
   message: {
     message: "Too many OTP requests. Please try again after 10 minutes.",
   },
   skip: (req) => {
-    // Whitelist specific IPs or conditions
-    const whitelist = ["127.0.0.1", "192.168.1.1"];
+    // Whitelist specific IPs
+    const whitelist = process.env.RATE_LIMIT_WHITELIST ? process.env.RATE_LIMIT_WHITELIST.split(",") : [];
     return whitelist.includes(req.ip);
+  },
+  handler: (req, res, next, options) => {
+    abuseLogger(req); // Log abuse attempts
+    res.status(options.statusCode).json(options.message); // Send rate-limit response
   },
 });
 
-// Log abuse attempts for monitoring
-const abuseLogger = (req) => {
-  console.warn(`Rate limit exceeded for IP: ${req.ip}`);
-};
-
-// Middleware wrapper to handle custom logic for logging
+// Wrapper to ensure rate limiter is applied correctly
 const rateLimitMiddleware = (req, res, next) => {
   otpLimiter(req, res, (err) => {
     if (err) {
-      abuseLogger(req);
+      console.error(`[RATE LIMIT ERROR] ${err.message}`);
     }
     next();
   });

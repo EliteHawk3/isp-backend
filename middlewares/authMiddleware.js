@@ -11,37 +11,52 @@ const verifyToken = (authorizationHeader) => {
     throw new Error("Invalid token format");
   }
 
-  return jwt.verify(token, process.env.JWT_SECRET);
+  let decoded;
+  try {
+    decoded = jwt.verify(token, process.env.JWT_SECRET);
+  } catch (err) {
+    throw new Error("Invalid or expired token");
+  }
+
+  if (!decoded.id) {
+    throw new Error("Token payload is missing required user ID");
+  }
+
+  return decoded;
 };
 
 // General authentication middleware
 const protect = (req, res, next) => {
   try {
-    // Verify token and attach the decoded payload to the request object
     const decoded = verifyToken(req.headers.authorization);
-    req.user = decoded; // Attach the entire payload for more flexibility
+    req.user = {
+      id: decoded.id, // Attach user ID explicitly
+      role: decoded.role, // Attach user role if available
+    };
     next();
   } catch (err) {
     console.error("Authentication error:", err.message);
-    res.status(401).json({ message: "Unauthorized: " + err.message });
+    res.status(401).json({ error: "Unauthorized", message: err.message });
   }
 };
 
 // Admin-only middleware
 const adminProtect = (req, res, next) => {
   try {
-    // Verify token and check role
     const decoded = verifyToken(req.headers.authorization);
 
     if (decoded.role !== "admin") {
-      return res.status(403).json({ message: "Forbidden: Admins only" });
+      return res.status(403).json({ error: "Forbidden", message: "Admins only" });
     }
 
-    req.user = decoded; // Attach the entire payload for flexibility
+    req.user = {
+      id: decoded.id,
+      role: decoded.role,
+    };
     next();
   } catch (err) {
     console.error("Authorization error:", err.message);
-    res.status(403).json({ message: "Forbidden: " + err.message });
+    res.status(403).json({ error: "Forbidden", message: err.message });
   }
 };
 

@@ -22,11 +22,13 @@ router.post("/verify-otp", verifyOtp); // Verify OTP
 // Get user profile
 router.get("/profile", protect, async (req, res) => {
   try {
-    const user = await User.findById(req.user);
+    // Extract the user ID from the decoded token payload
+    const user = await User.findById(req.user.id); // Use req.user.id instead of req.user
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
 
+    // Send the user profile data in response
     res.status(200).json({
       id: user._id,
       name: user.name,
@@ -38,7 +40,8 @@ router.get("/profile", protect, async (req, res) => {
       paymentStatus: user.paymentStatus,
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("Error fetching user profile:", err.message);
+    res.status(500).json({ message: "Server error" });
   }
 });
 

@@ -15,7 +15,7 @@ const verifyToken = (authorizationHeader) => {
   try {
     decoded = jwt.verify(token, process.env.JWT_SECRET);
   } catch (err) {
-    throw new Error("Invalid or expired token");
+    throw new Error("Authentication failed");
   }
 
   if (!decoded.id) {
@@ -26,37 +26,43 @@ const verifyToken = (authorizationHeader) => {
 };
 
 // General authentication middleware
-const protect = (req, res, next) => {
-  try {
-    const decoded = verifyToken(req.headers.authorization);
-    req.user = {
-      id: decoded.id, // Attach user ID explicitly
-      role: decoded.role, // Attach user role if available
-    };
-    next();
-  } catch (err) {
-    console.error("Authentication error:", err.message);
-    res.status(401).json({ error: "Unauthorized", message: err.message });
-  }
-};
-
-// Admin-only middleware
-const adminProtect = (req, res, next) => {
+const protect = async (req, res, next) => {
   try {
     const decoded = verifyToken(req.headers.authorization);
 
-    if (decoded.role !== "admin") {
-      return res.status(403).json({ error: "Forbidden", message: "Admins only" });
-    }
-
+    // Attach user details to request (can add database query if more details are needed)
     req.user = {
       id: decoded.id,
       role: decoded.role,
     };
+
+    next();
+  } catch (err) {
+    console.error("Authentication error:", err.message);
+    res.status(401).json({ error: "Unauthorized", message: "Authentication failed" });
+  }
+};
+
+// Admin-only middleware
+const adminProtect = async (req, res, next) => {
+  try {
+    const decoded = verifyToken(req.headers.authorization);
+
+    // Verify if the user has the admin role
+    if (decoded.role !== "admin") {
+      return res.status(403).json({ error: "Forbidden", message: "Admins only" });
+    }
+
+    // Attach admin details to request
+    req.user = {
+      id: decoded.id,
+      role: decoded.role,
+    };
+
     next();
   } catch (err) {
     console.error("Authorization error:", err.message);
-    res.status(403).json({ error: "Forbidden", message: err.message });
+    res.status(403).json({ error: "Forbidden", message: "Authorization failed" });
   }
 };
 

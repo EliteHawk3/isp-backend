@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
 
-const connectDB = async (retries = 5, waitTime = 5000) => {
-  const dbURI = process.env.MONGO_URI; // Use a single environment variable for MongoDB URI
+const connectDB = async (retries = process.env.DB_RETRIES || 5, waitTime = process.env.DB_WAIT_TIME || 5000) => {
+  const dbURI = process.env.MONGO_URI;
 
   while (retries) {
     try {
@@ -14,9 +14,13 @@ const connectDB = async (retries = 5, waitTime = 5000) => {
       break; // Exit loop if successful
     } catch (err) {
       console.error(`Error connecting to MongoDB: ${err.message}`);
+      console.log(`DB URI: ${dbURI.replace(/\/\/.*@/, "//[REDACTED]")}`); // Hide credentials for security
       retries -= 1;
       console.log(`Retries left: ${retries}`);
-      if (retries === 0) process.exit(1); // Exit if no retries left
+      if (retries === 0) {
+        console.error("All retries exhausted. Exiting application.");
+        process.exit(1);
+      }
       await new Promise((res) => setTimeout(res, waitTime)); // Wait before retrying
     }
   }
@@ -27,10 +31,17 @@ mongoose.connection.on("error", (err) => {
   console.error(`MongoDB connection error: ${err.message}`);
 });
 
-// Graceful shutdown
+// Graceful shutdown on SIGINT
 process.on("SIGINT", async () => {
   await mongoose.connection.close();
-  console.log("MongoDB connection closed due to app termination");
+  console.log("MongoDB connection closed due to app termination (SIGINT)");
+  process.exit(0);
+});
+
+// Graceful shutdown on SIGTERM
+process.on("SIGTERM", async () => {
+  await mongoose.connection.close();
+  console.log("MongoDB connection closed due to app termination (SIGTERM)");
   process.exit(0);
 });
 

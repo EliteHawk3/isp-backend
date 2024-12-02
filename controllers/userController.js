@@ -71,6 +71,73 @@ const loginUser = async (req, res) => {
   }
 };
 
+// Send OTP
+const sendOtp = async (req, res) => {
+  try {
+    const { phone } = req.body;
+
+    if (!phone) {
+      return res.status(400).json({ message: "Phone number is required." });
+    }
+
+    // Generate a random 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // Valid for 10 minutes
+
+    const user = await User.findOne({ phone });
+    if (!user) {
+      return res.status(404).json({ message: "User not found." });
+    }
+
+    // Update the user's record with the OTP and expiry
+    user.otp = otp;
+    user.otpExpiry = otpExpiry;
+    await user.save();
+
+    console.log(`OTP for ${phone}: ${otp}`); // Debugging: Log the OTP (remove in production)
+
+    res.status(200).json({ message: "OTP sent successfully." });
+  } catch (err) {
+    console.error("Error sending OTP:", err.message);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+};
+
+// Verify OTP
+const verifyOtp = async (req, res) => {
+  try {
+    const { phone, otp } = req.body;
+
+    if (!phone || !otp) {
+      return res.status(400).json({ message: "Phone number and OTP are required." });
+    }
+
+    const user = await User.findOne({ phone });
+    if (!user) {
+      return res.status(404).json({ message: "User not found." });
+    }
+
+    // Check if OTP matches and is not expired
+    if (user.otp !== otp) {
+      return res.status(400).json({ message: "Invalid OTP." });
+    }
+
+    if (user.otpExpiry < Date.now()) {
+      return res.status(400).json({ message: "OTP has expired." });
+    }
+
+    // Clear OTP fields after successful verification
+    user.otp = null;
+    user.otpExpiry = null;
+    await user.save();
+
+    res.status(200).json({ message: "OTP verified successfully." });
+  } catch (err) {
+    console.error("Error verifying OTP:", err.message);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+};
+
 // Update User Profile
 const updateUserProfile = async (req, res) => {
   try {

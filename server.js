@@ -3,8 +3,15 @@ const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
+const morgan = require("morgan");
 const connectDB = require("./config/db");
 const userRoutes = require("./routes/userRoutes");
+
+// Validate Environment Variables
+if (!process.env.MONGO_URI || !process.env.JWT_SECRET || !process.env.PORT) {
+  console.error("Critical environment variables are missing. Please check your .env file.");
+  process.exit(1);
+}
 
 // Initialize Database
 connectDB()
@@ -14,9 +21,10 @@ connectDB()
 const app = express();
 
 // Middleware
-app.use(cors({ origin: "*" })); // Allow all origins for testing purposes
+app.use(cors({ origin: "*" })); // Adjust origin in production
 app.use(express.json());
 app.use(helmet());
+app.use(morgan("dev")); // Logs HTTP requests
 
 // Rate Limiting
 const apiLimiter = rateLimit({
@@ -30,8 +38,9 @@ app.use("/api", apiLimiter);
 app.use("/api/users", userRoutes);
 
 // Health Check Endpoint
-app.get("/", (req, res) => {
-  res.status(200).json({ message: "Server is running!" });
+app.get("/health", async (req, res) => {
+  const dbStatus = mongoose.connection.readyState === 1 ? "healthy" : "unhealthy";
+  res.status(200).json({ message: "Server is running!", dbStatus });
 });
 
 // Global Error Handler
@@ -40,6 +49,14 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({
     message: err.message || "Something went wrong!",
   });
+});
+
+// Graceful Shutdown
+process.on("SIGINT", async () => {
+  console.log("Shutting down server...");
+  await mongoose.connection.close();
+  console.log("MongoDB connection closed.");
+  process.exit(0);
 });
 
 // Start the server

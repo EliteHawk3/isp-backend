@@ -12,6 +12,12 @@ const User = require("../models/User");
 
 const router = express.Router();
 
+// Utility function for error handling
+const handleServerError = (res, error, customMessage = "Server error") => {
+  console.error(`[SERVER ERROR]: ${error.message}`);
+  res.status(500).json({ message: customMessage });
+};
+
 // Public Routes
 router.post("/register", registerUser); // Register a new user
 router.post("/login", loginUser); // Login a user
@@ -23,25 +29,18 @@ router.post("/verify-otp", verifyOtp); // Verify OTP
 router.get("/profile", protect, async (req, res) => {
   try {
     // Extract the user ID from the decoded token payload
-    const user = await User.findById(req.user.id); // Use req.user.id instead of req.user
+    const user = await User.findById(req.user.id).select(
+      "name phone address packageName packageDetails dueDate paymentStatus"
+    ); // Exclude unnecessary fields
+
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
 
     // Send the user profile data in response
-    res.status(200).json({
-      id: user._id,
-      name: user.name,
-      phone: user.phone,
-      address: user.address,
-      packageName: user.packageName,
-      packageDetails: user.packageDetails,
-      dueDate: user.dueDate,
-      paymentStatus: user.paymentStatus,
-    });
+    res.status(200).json(user);
   } catch (err) {
-    console.error("Error fetching user profile:", err.message);
-    res.status(500).json({ message: "Server error" });
+    handleServerError(res, err, "Error fetching user profile");
   }
 });
 

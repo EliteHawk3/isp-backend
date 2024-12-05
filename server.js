@@ -7,33 +7,40 @@ const morgan = require("morgan");
 const mongoose = require("mongoose");
 const connectDB = require("./config/db");
 const userRoutes = require("./routes/userRoutes");
+const adminRoutes = require("./routes/adminRoutes");
+const supportRoutes = require("./routes/supportRoutes");
 
 // Validate Environment Variables
-if (!process.env.MONGO_URI || !process.env.JWT_SECRET || !process.env.PORT) {
-  console.error("Critical environment variables are missing. Please check your .env file.");
-  process.exit(1);
-}
-
-// Initialize Database
-connectDB()
-  .then(() => console.log("Database connected successfully"))
-  .catch((err) => console.error("Database connection error:", err));
+["MONGO_URI", "JWT_SECRET", "PORT", "NODE_ENV"].forEach((key) => {
+  if (!process.env[key]) {
+    console.error(`Missing required environment variable: ${key}`);
+    process.exit(1);
+  }
+});
 
 const app = express();
 
 // Middleware
-app.use(cors({ origin: "*" })); // Adjust origin in production
+const isProduction = process.env.NODE_ENV === "production";
+app.use(cors({ origin: isProduction ? process.env.CORS_ORIGIN : "*" }));
 app.use(express.json());
 app.use(helmet());
-app.use(morgan("dev")); // Logs HTTP requests
+if (!isProduction) app.use(morgan("dev")); // Logging only in non-production
 
 // Rate Limiting
-const apiLimiter = rateLimit({
+const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100, // Limit each IP to 100 requests per window
   message: "Too many requests from this IP, please try again later.",
 });
-app.use("/api", apiLimiter);
+app.use("/api", generalLimiter);
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // Limit each IP to 5 login attempts per window
+  message: "Too many login attempts, please try again later.",
+});
+app.use("/api/users/login", loginLimiter);
 
 // Root Route
 app.get("/", (req, res) => {
@@ -41,38 +48,61 @@ app.get("/", (req, res) => {
 });
 
 // Routes
-app.use("/api/users", userRoutes);
+app.use("/api/v1/users", userRoutes);
+app.use("/api/v1/admin", adminRoutes);
+app.use("/api/v1/support", supportRoutes);
 
 // Health Check Endpoint
-app.get("/health", async (req, res) => {
+app.get("/health", (req, res) => {
   const dbStatus = mongoose.connection.readyState === 1 ? "healthy" : "unhealthy";
-  res.status(200).json({ message: "Server is running!", dbStatus });
+  res.status(200).json({
+    message: "Server is running!",
+    dbStatus,
+    environment: process.env.NODE_ENV,
+    uptime: process.uptime(),
+    memoryUsage: process.memoryUsage(),
+  });
 });
 
 // Global Error Handler
 app.use((err, req, res, next) => {
   console.error(err.stack);
   res.status(err.status || 500).json({
-    message: err.message || "Something went wrong!",
+    success: false,
+    error: err.message || "Internal Server Error",
   });
 });
 
-// Graceful Shutdown
-process.on("SIGINT", async () => {
-  console.log("Shutting down server...");
-  await mongoose.connection.close();
-  console.log("MongoDB connection closed.");
-  process.exit(0);
-});
+// Initialize Database with Retry Logic
+const connectWithRetries = async () => {
+  try {
+    await connectDB(); // Calls the retry-enabled connectDB function
+    console.log("Database connected successfully");
+  } catch (error) {
+    console.error("Initial database connection failed, retrying...");
+    setTimeout(connectWithRetries, 5000); // Retry every 5 seconds
+  }
+};
 
-process.on("SIGTERM", async () => {
-  console.log("Shutting down gracefully...");
-  await mongoose.connection.close();
-  process.exit(0);
-});
+// Start with DB connection and then start server
+connectWithRetries().then(() => {
+  // Start the server only once the DB connection is established
+  const server = app.listen(process.env.PORT || 5000, () => {
+    console.log(`Server is running on http://localhost:${process.env.PORT || 5000}`);
+  });
 
-// Start the server
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
+  // Graceful Shutdown
+  const gracefulShutdown = async (signal) => {
+    console.log(`Received ${signal}. Closing server...`);
+    server.close(() => {
+      console.log("Server closed.");
+    });
+
+    await mongoose.connection.close();
+    console.log("MongoDB connection closed.");
+    process.exit(0);
+  };
+
+  process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+  process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
 });

@@ -2,12 +2,9 @@ const express = require("express");
 const {
   registerUser,
   loginUser,
-  sendOtp,
-  verifyOtp,
   updateUserProfile,
 } = require("../controllers/userController");
 const { protect } = require("../middlewares/authMiddleware");
-const { otpLimiter } = require("../middlewares/rateLimiter");
 const User = require("../models/User");
 
 const router = express.Router();
@@ -15,37 +12,15 @@ const router = express.Router();
 // Utility function for error handling
 const handleServerError = (res, error, customMessage = "Server error") => {
   console.error(`[SERVER ERROR]: ${error.message}`);
-  res.status(500).json({ message: customMessage });
+  res.status(500).json({ status: "error", message: customMessage });
 };
-
-// Log imported handlers for debugging
-console.log({ registerUser, loginUser, sendOtp, verifyOtp, updateUserProfile });
 
 // Public Routes
 router.post("/register", registerUser); // Register a new user
 router.post("/login", loginUser); // Login a user
 
-// Debug send-otp route
-router.post("/send-otp", otpLimiter, (req, res) => {
-  console.log("Send OTP route hit");
-  if (sendOtp) {
-    sendOtp(req, res);
-  } else {
-    res.status(500).json({ message: "Send OTP handler not defined" });
-  }
-});
-
-// Debug verify-otp route
-router.post("/verify-otp", (req, res) => {
-  console.log("Verify OTP route hit");
-  if (verifyOtp) {
-    verifyOtp(req, res);
-  } else {
-    res.status(500).json({ message: "Verify OTP handler not defined" });
-  }
-});
-
 // Protected Routes
+// Fetch user profile
 router.get("/profile", protect, async (req, res) => {
   try {
     const fieldsToSelect =
@@ -53,18 +28,19 @@ router.get("/profile", protect, async (req, res) => {
     const user = await User.findById(req.user.id).select(fieldsToSelect);
 
     if (!user) {
-      return res.status(404).json({ message: "User not found" });
+      return res.status(404).json({ status: "error", message: "User not found" });
     }
 
-    res.status(200).json(user);
+    res.status(200).json({ status: "success", data: user });
   } catch (err) {
     handleServerError(res, err, "Error fetching user profile");
   }
 });
 
+// Update user profile
 router.put("/profile", protect, updateUserProfile);
 
-// New Dashboard Route
+// Fetch user dashboard
 router.get("/dashboard", protect, async (req, res) => {
   try {
     // Fetch user data for dashboard view
@@ -72,18 +48,39 @@ router.get("/dashboard", protect, async (req, res) => {
       .select("name phone packageName paymentStatus dueDate notifications");
 
     if (!user) {
-      return res.status(404).json({ message: "User not found" });
+      return res.status(404).json({ status: "error", message: "User not found" });
     }
 
+    // Calculate unread notifications count
+    const unreadNotificationsCount = user.notifications.filter(
+      (n) => !n.read
+    ).length;
+
+    // Paginate notifications
+    const { page = 1, limit = 5 } = req.query;
+    const skip = (page - 1) * limit;
+    const paginatedNotifications = user.notifications.slice(skip, skip + parseInt(limit));
+
     res.status(200).json({
-      profile: {
-        name: user.name,
-        phone: user.phone,
-        packageName: user.packageName,
-        paymentStatus: user.paymentStatus,
-        dueDate: user.dueDate,
+      status: "success",
+      data: {
+        profile: {
+          name: user.name,
+          phone: user.phone,
+          packageName: user.packageName,
+          paymentStatus: user.paymentStatus,
+          dueDate: user.dueDate,
+        },
+        notifications: {
+          total: user.notifications.length,
+          unreadCount: unreadNotificationsCount,
+          list: paginatedNotifications,
+          pagination: {
+            currentPage: parseInt(page),
+            totalPages: Math.ceil(user.notifications.length / limit),
+          },
+        },
       },
-      notifications: user.notifications,
     });
   } catch (err) {
     handleServerError(res, err, "Error fetching dashboard data");
@@ -92,7 +89,10 @@ router.get("/dashboard", protect, async (req, res) => {
 
 // Fallback route for undefined endpoints
 router.all("*", (req, res) => {
-  res.status(404).json({ message: "Endpoint not found" });
+  res.status(404).json({
+    status: "error",
+    message: "The requested endpoint does not exist. Please check the URL.",
+  });
 });
 
 module.exports = router;

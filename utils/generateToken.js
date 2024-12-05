@@ -9,21 +9,33 @@ const jwt = require("jsonwebtoken");
  */
 const generateToken = (id, role, phone) => {
   try {
+    // Validate input types
+    if (!id || !role || !phone) {
+      throw new Error("Missing required fields: id, role, or phone");
+    }
+    if (typeof id !== "string" || typeof role !== "string" || typeof phone !== "string") {
+      throw new Error("Invalid input types for token generation");
+    }
+
     // Ensure the secret is defined
-    if (!process.env.JWT_SECRET) {
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
       throw new Error("JWT_SECRET is not set in environment variables");
     }
 
-    // Generate the token with user details
+    // Configure token expiration
+    const expiresIn = process.env.JWT_EXPIRES_IN || "1h";
+
+    // Generate the token
     return jwt.sign(
       { id, role, phone }, // Payload includes user ID, role, and phone number
-      process.env.JWT_SECRET,
-      {
-        expiresIn: process.env.JWT_EXPIRES_IN || "1h", // Configurable expiration time
-      }
+      secret,
+      { expiresIn }
     );
   } catch (error) {
-    console.error("[TOKEN ERROR]:", error.message, {
+    // Enhanced error logging
+    console.error(`[TOKEN ERROR]: ${error.message}`, {
+      timestamp: new Date().toISOString(),
       id,
       role,
       phone,

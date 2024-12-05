@@ -1,18 +1,44 @@
 const bcrypt = require("bcrypt");
 const User = require("../models/User");
 const generateToken = require("../utils/generateToken");
+const Joi = require("joi");
+
+// Utility function for handling server errors
+const handleServerError = (res, error, customMessage = "Server error") => {
+  console.error(`[SERVER ERROR]: ${error.message}`);
+  res.status(500).json({ message: customMessage });
+};
+
+// Joi validation schemas
+const registerSchema = Joi.object({
+  name: Joi.string().min(3).required(),
+  phone: Joi.string().pattern(/^\d+$/).required(),
+  password: Joi.string().min(6).max(16).required(),
+  address: Joi.string().required(),
+  securityQuestion: Joi.string().required(),
+  securityAnswer: Joi.string().required(),
+});
+
+const loginSchema = Joi.object({
+  phone: Joi.string().pattern(/^\d+$/).required(),
+  password: Joi.string().required(),
+});
+
+const resetPasswordSchema = Joi.object({
+  phone: Joi.string().pattern(/^\d+$/).required(),
+  securityAnswer: Joi.string().required(),
+  newPassword: Joi.string().min(6).max(16).required(),
+});
 
 // Register a User
 const registerUser = async (req, res) => {
   try {
-    const { name, phone, password, address } = req.body;
+    const { error } = registerSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ message: error.details[0].message });
+    }
 
-    if (password.length !== 6) {
-      return res.status(400).json({ message: "Password must be exactly 6 characters long." });
-    }
-    if (!address) {
-      return res.status(400).json({ message: "Address is required." });
-    }
+    const { name, phone, password, address, securityQuestion, securityAnswer } = req.body;
 
     const existingUser = await User.findOne({ phone });
     if (existingUser) {
@@ -20,27 +46,34 @@ const registerUser = async (req, res) => {
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const newUser = new User({ name, phone, password: hashedPassword, address });
+    const hashedAnswer = await bcrypt.hash(securityAnswer, 10);
+
+    const newUser = new User({
+      name,
+      phone,
+      password: hashedPassword,
+      address,
+      securityQuestion,
+      securityAnswer: hashedAnswer,
+    });
+
     await newUser.save();
 
-    // Remove sensitive data before sending response
-    const { password: removedPassword, ...userDetails } = newUser._doc;
-
+    const { password: _, ...userDetails } = newUser._doc;
     res.status(201).json({ message: "User registered successfully", user: userDetails });
-  } catch (err) {
-    console.error("Registration error:", err.message);
-    res.status(500).json({ error: "Internal Server Error" });
+  } catch (error) {
+    handleServerError(res, error, "Failed to register user");
   }
 };
-
 // Login a User
 const loginUser = async (req, res) => {
   try {
-    const { phone, password } = req.body;
-
-    if (!phone || !password) {
-      return res.status(400).json({ message: "Phone and password are required." });
+    const { error } = loginSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ message: error.details[0].message });
     }
+
+    const { phone, password } = req.body;
 
     const user = await User.findOne({ phone }).select("+password");
     if (!user) {
@@ -52,7 +85,8 @@ const loginUser = async (req, res) => {
       return res.status(400).json({ message: "Invalid credentials." });
     }
 
-    const token = generateToken(user._id, user.role || "user");
+    // Convert the id to string before passing it to the generateToken function
+    const token = generateToken(user._id.toString(), user.role || "user", user.phone);
 
     res.status(200).json({
       message: "Login successful",
@@ -65,76 +99,55 @@ const loginUser = async (req, res) => {
         role: user.role,
       },
     });
-  } catch (err) {
-    console.error("Login error:", err.message);
-    res.status(500).json({ error: "Internal Server Error" });
+  } catch (error) {
+    handleServerError(res, error, "Failed to log in user");
   }
 };
 
-// Send OTP
-const sendOtp = async (req, res) => {
-  try {
-    const { phone } = req.body;
 
-    if (!phone) {
-      return res.status(400).json({ message: "Phone number is required." });
+
+// Reset Password with Security Question
+const resetPassword = async (req, res) => {
+  try {
+    const { error } = resetPasswordSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ message: error.details[0].message });
     }
 
-    // Generate a random 6-digit OTP
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // Valid for 10 minutes
+    const { phone, securityAnswer, newPassword } = req.body;
 
-    const user = await User.findOne({ phone });
+    const user = await User.findOne({ phone }).select("+securityAnswer +securityAnswerAttempts +accountLockedUntil");
+
     if (!user) {
       return res.status(404).json({ message: "User not found." });
     }
 
-    // Update the user's record with the OTP and expiry
-    user.otp = otp;
-    user.otpExpiry = otpExpiry;
+    if (user.accountLockedUntil && user.accountLockedUntil > Date.now()) {
+      return res.status(403).json({ message: "Account is temporarily locked. Try again later." });
+    }
+
+    const isAnswerMatch = await bcrypt.compare(securityAnswer, user.securityAnswer);
+    if (!isAnswerMatch) {
+      user.securityAnswerAttempts += 1;
+
+      if (user.securityAnswerAttempts >= 3) {
+        user.accountLockedUntil = new Date(Date.now() + 24 * 60 * 60 * 1000); // Lock for 24 hours
+        await user.save();
+        return res.status(403).json({ message: "Too many attempts. Account locked temporarily." });
+      }
+
+      await user.save();
+      return res.status(400).json({ message: "Incorrect security answer." });
+    }
+
+    user.password = await bcrypt.hash(newPassword, 10);
+    user.securityAnswerAttempts = 0; // Reset attempts
+    user.accountLockedUntil = null; // Unlock account
     await user.save();
 
-    console.log(`OTP for ${phone}: ${otp}`); // Debugging: Log the OTP (remove in production)
-
-    res.status(200).json({ message: "OTP sent successfully." });
-  } catch (err) {
-    console.error("Error sending OTP:", err.message);
-    res.status(500).json({ error: "Internal Server Error" });
-  }
-};
-
-// Verify OTP
-const verifyOtp = async (req, res) => {
-  try {
-    const { phone, otp } = req.body;
-
-    if (!phone || !otp) {
-      return res.status(400).json({ message: "Phone number and OTP are required." });
-    }
-
-    const user = await User.findOne({ phone });
-    if (!user) {
-      return res.status(404).json({ message: "User not found." });
-    }
-
-    // Check if OTP matches and is not expired
-    if (user.otp !== otp) {
-      return res.status(400).json({ message: "Invalid OTP." });
-    }
-
-    if (user.otpExpiry < Date.now()) {
-      return res.status(400).json({ message: "OTP has expired." });
-    }
-
-    // Clear OTP fields after successful verification
-    user.otp = null;
-    user.otpExpiry = null;
-    await user.save();
-
-    res.status(200).json({ message: "OTP verified successfully." });
-  } catch (err) {
-    console.error("Error verifying OTP:", err.message);
-    res.status(500).json({ error: "Internal Server Error" });
+    res.status(200).json({ message: "Password reset successfully." });
+  } catch (error) {
+    handleServerError(res, error, "Failed to reset password");
   }
 };
 
@@ -166,16 +179,14 @@ const updateUserProfile = async (req, res) => {
         address: updatedUser.address,
       },
     });
-  } catch (err) {
-    console.error("Update profile error:", err.message);
-    res.status(500).json({ error: "Internal Server Error" });
+  } catch (error) {
+    handleServerError(res, error, "Failed to update user profile");
   }
 };
 
 module.exports = {
   registerUser,
   loginUser,
-  sendOtp,
-  verifyOtp,
+  resetPassword,
   updateUserProfile,
 };

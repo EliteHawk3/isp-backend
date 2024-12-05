@@ -4,49 +4,71 @@ const rateLimit = require("express-rate-limit");
 const dynamicRateLimit = (req) => {
   try {
     if (req.user && req.user.role === "admin") {
-      console.log(`[RATE LIMIT] Admin user detected: ID=${req.user.id}`); // Debugging: Log admin users
+      console.log(`[RATE LIMIT] Admin user detected: ID=${req.user.id}`);
       return 100; // Admins get higher limits
     }
     console.log(`[RATE LIMIT] Standard user detected or unauthenticated request from IP: ${req.ip}`);
-    return 3; // Default limit
+    return 3; // Default limit for regular users
   } catch (err) {
     console.error(`[RATE LIMIT ERROR] Error determining dynamic limit: ${err.message}`);
-    return 3; // Default fallback limit
+    return 3; // Fallback limit
   }
 };
 
-// Custom logging for abuse attempts
-const abuseLogger = (req) => {
-  console.warn(`[RATE LIMIT] Exceeded for IP: ${req.ip} | Endpoint: ${req.originalUrl} | User ID: ${req.user?.id || "Unauthenticated"} | Time: ${new Date().toISOString()}`);
+// Function to check if an IP is whitelisted
+const isWhitelisted = (ip) => {
+  const whitelist = process.env.RATE_LIMIT_WHITELIST
+    ? process.env.RATE_LIMIT_WHITELIST.split(",")
+    : [];
+  const isAllowed = whitelist.includes(ip);
+  if (isAllowed) {
+    console.log(`[RATE LIMIT] Whitelisted IP: ${ip}`);
+  }
+  return isAllowed;
 };
 
-// OTP rate limiter
-const otpLimiter = rateLimit({
-  windowMs: 10 * 60 * 1000, // 10-minute window
-  max: (req) => dynamicRateLimit(req), // Dynamic rate limit based on role or IP
+// Custom abuse logger
+const abuseLogger = (req) => {
+  console.warn(
+    `[RATE LIMIT] Exceeded: IP=${req.ip} | Endpoint=${req.originalUrl} | Method=${req.method} | User ID=${req.user?.id || "Unauthenticated"} | Time=${new Date().toISOString()}`
+  );
+};
+
+// Password Reset Rate Limiter
+const passwordResetLimiter = rateLimit({
+  windowMs: 24 * 60 * 60 * 1000, // 24-hour window
+  max: (req) => dynamicRateLimit(req), // Dynamic rate limit based on user role or IP
   standardHeaders: true, // Include standard rate limit headers
   legacyHeaders: false, // Disable legacy headers
   message: {
-    message: "Too many OTP requests. Please try again after 10 minutes.",
+    message: "Too many password reset attempts. Please try again after 24 hours or contact admin support.",
   },
-  skip: (req) => {
-    // Whitelist specific IPs
-    const whitelist = process.env.RATE_LIMIT_WHITELIST ? process.env.RATE_LIMIT_WHITELIST.split(",") : [];
-    const isWhitelisted = whitelist.includes(req.ip);
-    if (isWhitelisted) {
-      console.log(`[RATE LIMIT] Whitelisted IP: ${req.ip}`);
-    }
-    return isWhitelisted;
-  },
+  skip: (req) => isWhitelisted(req.ip), // Skip rate limiting for whitelisted IPs
   handler: (req, res, next, options) => {
     abuseLogger(req); // Log abuse attempts
     res.status(options.statusCode).json(options.message); // Send rate-limit response
   },
 });
 
-// Wrapper to ensure rate limiter is applied correctly
+// Global Rate Limiter for All Requests
+const globalRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15-minute window
+  max: 100, // Default limit for all requests
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    message: "Too many requests. Please try again later.",
+  },
+  skip: (req) => isWhitelisted(req.ip), // Skip rate limiting for whitelisted IPs
+  handler: (req, res, next, options) => {
+    abuseLogger(req); // Log abuse attempts
+    res.status(options.statusCode).json(options.message);
+  },
+});
+
+// Wrapper to apply the password reset limiter
 const rateLimitMiddleware = (req, res, next) => {
-  otpLimiter(req, res, (err) => {
+  passwordResetLimiter(req, res, (err) => {
     if (err) {
       console.error(`[RATE LIMIT ERROR] ${err.message}`);
     }
@@ -54,4 +76,7 @@ const rateLimitMiddleware = (req, res, next) => {
   });
 };
 
-module.exports = { otpLimiter: rateLimitMiddleware };
+module.exports = {
+  passwordResetLimiter: rateLimitMiddleware,
+  globalRateLimiter,
+};

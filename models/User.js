@@ -18,6 +18,16 @@ const userSchema = new mongoose.Schema(
       match: /^\+?[0-9]{10,15}$/, // Accepts phone numbers with or without country codes
     },
     address: { type: String, required: true, trim: true },
+    cnic: {
+      type: String,
+      required: true,
+      unique: true,
+      match: /^[0-9]{5}-[0-9]{7}-[0-9]{1}$/, // CNIC format validation: XXXXX-XXXXXXX-X
+      validate: {
+        validator: (v) => /^[0-9]{5}-[0-9]{7}-[0-9]{1}$/.test(v),
+        message: (props) => `${props.value} is not a valid CNIC!`,
+      },
+    },
     password: { type: String, required: true, select: false },
     packageId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -62,6 +72,7 @@ const userSchema = new mongoose.Schema(
 
 // Index for optimized queries
 userSchema.index({ isActive: 1, phone: 1 });
+userSchema.index({ cnic: 1 }); // Index for CNIC field
 userSchema.index({ deletedAt: 1 }); // For soft delete optimization
 userSchema.index({ paymentStatus: 1, dueDate: 1 }); // Payment-related queries
 
@@ -105,14 +116,16 @@ userSchema.pre("save", function (next) {
   next();
 });
 
-// Middleware to enforce unique phone validation with readable errors
+// Middleware to enforce unique phone and CNIC validation with readable errors
 userSchema.post("save", function (error, doc, next) {
   if (error.name === "MongoServerError" && error.code === 11000) {
-    next(
-      new Error(
-        "Phone number already exists. Please use a different phone number."
-      )
-    );
+    if (error.keyValue.cnic) {
+      next(new Error("CNIC number already exists. Please use a different CNIC."));
+    } else if (error.keyValue.phone) {
+      next(new Error("Phone number already exists. Please use a different phone number."));
+    } else {
+      next(error);
+    }
   } else {
     next(error);
   }

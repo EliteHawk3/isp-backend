@@ -31,15 +31,20 @@ router.put("/users/:userId", updateUser); // Update user details
 router.delete("/users/:userId", deactivateUser); // Deactivate (soft delete) a user
 router.get("/users", async (req, res) => {
   try {
-    const { page = 1, limit = 10 } = req.query;
+    const { page = 1, limit = 10, cnic } = req.query;
     const skip = (page - 1) * limit;
 
-    const users = await User.find({ isActive: true })
+    const filters = { isActive: true };
+    if (cnic) {
+      filters.cnic = cnic; // Add CNIC filter if provided
+    }
+
+    const users = await User.find(filters)
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit));
 
-    const total = await User.countDocuments({ isActive: true });
+    const total = await User.countDocuments(filters);
 
     res.status(200).json({
       users,

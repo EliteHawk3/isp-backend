@@ -124,6 +124,13 @@ packageSchema.statics.restoreById = async function (id) {
   );
 };
 
+// Static method to find expiring packages
+packageSchema.statics.findExpiringSoon = function (days = 7) {
+  const now = new Date();
+  const soon = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+  return this.find({ expiresAt: { $lte: soon }, isActive: true, deletedAt: null });
+};
+
 // Index `isActive`, `deletedAt`, and `expiresAt` for efficient queries
 packageSchema.index({ isActive: 1, deletedAt: 1, expiresAt: 1 });
 

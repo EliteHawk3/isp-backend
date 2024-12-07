@@ -38,7 +38,7 @@ const protect = async (req, res, next) => {
     const decoded = verifyToken(req.headers.authorization);
 
     // Fetch user details from the database
-    const user = await User.findById(decoded.id).select("name phone isActive role");
+    const user = await User.findById(decoded.id).select("name phone cnic isActive role");
     if (!user || !user.isActive) {
       throw new Error("User account not found or is inactive");
     }
@@ -49,6 +49,7 @@ const protect = async (req, res, next) => {
       role: decoded.role,
       name: user.name,
       phone: user.phone,
+      cnic: user.cnic, // Include CNIC for auditing or logging
     };
 
     next(); // Proceed to the next middleware or route handler

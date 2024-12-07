@@ -91,9 +91,9 @@ supportTicketSchema.pre("save", function (next) {
     closed: [],
   };
 
-  if (this.isModified("status") && this.status in validTransitions) {
+  if (this.isModified("status")) {
     const previousStatus = this.get("status");
-    if (!validTransitions[previousStatus].includes(this.status)) {
+    if (!validTransitions[previousStatus]?.includes(this.status)) {
       return next(
         new Error(
           `Invalid status transition from ${previousStatus} to ${this.status}`

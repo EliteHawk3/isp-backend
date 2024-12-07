@@ -10,9 +10,9 @@ const { protect, adminOnly } = require("../middlewares/authMiddleware");
 
 const router = express.Router();
 
-/** 
- * Public Routes 
- * These routes are accessible to authenticated users.
+/**
+ * Public Routes
+ * Accessible to authenticated users.
  */
 
 // Create a support ticket (User)
@@ -21,23 +21,22 @@ router.post("/", protect, createTicket);
 // Get all tickets for the logged-in user
 router.get("/my-tickets", protect, getUserTickets);
 
-/** 
- * Admin Routes 
- * These routes are restricted to admin users only.
+/**
+ * Admin Routes
+ * Accessible only to admin users.
  */
 
 // Get all support tickets (Admin only) with optional filters and pagination
 router.get("/", protect, adminOnly, async (req, res) => {
   try {
     const { page = 1, limit = 10, status, priority, userId } = req.query;
-    const skip = (page - 1) * limit;
 
     const filters = {};
     if (status) filters.status = status;
     if (priority) filters.priority = priority;
     if (userId) filters.user = userId;
 
-    const tickets = await getAllTickets(filters, skip, parseInt(limit));
+    const tickets = await getAllTickets(filters, parseInt(page), parseInt(limit));
     const total = await getAllTickets(filters).countDocuments();
 
     res.status(200).json({
@@ -58,8 +57,8 @@ router.put("/:ticketId/status", protect, adminOnly, updateTicketStatus);
 // Delete a support ticket (Admin only)
 router.delete("/:ticketId", protect, adminOnly, deleteTicket);
 
-/** 
- * Fallback Route 
+/**
+ * Fallback Route
  * Handles undefined endpoints.
  */
 router.all("*", (req, res) => {

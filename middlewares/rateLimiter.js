@@ -5,10 +5,14 @@ const dynamicRateLimit = (req) => {
   try {
     if (req.user && req.user.role === "admin") {
       console.log(`[RATE LIMIT] Admin user detected: ID=${req.user.id}`);
-      return 100; // Admins get higher limits
+      return 100; // Higher limit for admins
     }
-    console.log(`[RATE LIMIT] Standard user detected or unauthenticated request from IP: ${req.ip}`);
-    return 3; // Default limit for regular users
+    if (req.user && req.user.cnic) {
+      console.log(`[RATE LIMIT] Verified user with CNIC detected: ID=${req.user.id}, CNIC=${req.user.cnic}`);
+      return 10; // Moderate limit for verified users with CNIC
+    }
+    console.log(`[RATE LIMIT] Standard user or unauthenticated request from IP: ${req.ip}`);
+    return 3; // Default limit for regular users or unauthenticated requests
   } catch (err) {
     console.error(`[RATE LIMIT ERROR] Error determining dynamic limit: ${err.message}`);
     return 3; // Fallback limit
@@ -30,7 +34,7 @@ const isWhitelisted = (ip) => {
 // Custom abuse logger
 const abuseLogger = (req) => {
   console.warn(
-    `[RATE LIMIT] Exceeded: IP=${req.ip} | Endpoint=${req.originalUrl} | Method=${req.method} | User ID=${req.user?.id || "Unauthenticated"} | Time=${new Date().toISOString()}`
+    `[RATE LIMIT] Exceeded: IP=${req.ip} | Endpoint=${req.originalUrl} | Method=${req.method} | User ID=${req.user?.id || "Unauthenticated"} | CNIC=${req.user?.cnic || "N/A"} | Time=${new Date().toISOString()}`
   );
 };
 

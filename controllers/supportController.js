@@ -44,7 +44,7 @@ const getAllTickets = async (req, res) => {
     const { page = 1, limit = 10 } = req.query;
 
     const tickets = await SupportTicket.find()
-      .populate("user", "name phone") // Populate user details
+      .populate("user", "name phone cnic") // Populate user details (includes CNIC)
       .sort({ createdAt: -1 }) // Sort by most recent
       .skip((page - 1) * limit)
       .limit(parseInt(limit));
@@ -68,7 +68,9 @@ const getAllTickets = async (req, res) => {
 // Get tickets for a specific user
 const getUserTickets = async (req, res) => {
   try {
-    const tickets = await SupportTicket.find({ user: req.user.id }).sort({ createdAt: -1 });
+    const tickets = await SupportTicket.find({ user: req.user.id })
+      .sort({ createdAt: -1 })
+      .select("-deleted"); // Exclude deleted field in user view
 
     if (!tickets.length) {
       return res.status(404).json({ message: "No tickets found for the user." });
@@ -108,6 +110,35 @@ const updateTicketStatus = async (req, res) => {
   }
 };
 
+// Add an admin comment to a ticket
+const addAdminComment = async (req, res) => {
+  try {
+    const { ticketId } = req.params;
+    const { comment } = req.body;
+
+    if (!comment || comment.length > 500) {
+      return res.status(400).json({ message: "Comment is required and must be under 500 characters." });
+    }
+
+    const ticket = await SupportTicket.findById(ticketId);
+
+    if (!ticket) {
+      return res.status(404).json({ message: `Ticket with ID ${ticketId} not found.` });
+    }
+
+    ticket.adminComments.push({
+      adminId: req.user.id, // Admin adding the comment
+      comment,
+    });
+
+    await ticket.save();
+
+    res.status(200).json({ message: "Comment added successfully.", ticket });
+  } catch (error) {
+    handleServerError(res, error, "Failed to add admin comment");
+  }
+};
+
 // Soft delete a ticket (admin only)
 const deleteTicket = async (req, res) => {
   try {
@@ -119,8 +150,7 @@ const deleteTicket = async (req, res) => {
       return res.status(404).json({ message: `Ticket with ID ${ticketId} not found.` });
     }
 
-    ticket.isDeleted = true;
-    ticket.deletedAt = new Date();
+    ticket.deleted = true;
     await ticket.save();
 
     res.status(200).json({ message: "Ticket soft-deleted successfully." });
@@ -134,5 +164,6 @@ module.exports = {
   getAllTickets,
   getUserTickets,
   updateTicketStatus,
+  addAdminComment,
   deleteTicket,
 };

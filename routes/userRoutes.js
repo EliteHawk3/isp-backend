@@ -16,15 +16,17 @@ const handleServerError = (res, error, customMessage = "Server error") => {
 };
 
 // Public Routes
-router.post("/register", registerUser); // Register a new user
-router.post("/login", loginUser); // Login a user
+// Register a new user
+router.post("/register", registerUser);
+// Login a user
+router.post("/login", loginUser);
 
 // Protected Routes
 // Fetch user profile
 router.get("/profile", protect, async (req, res) => {
   try {
     const fieldsToSelect =
-      "name phone address packageName packageDetails dueDate paymentStatus";
+      "name phone address cnic packageName packageDetails dueDate paymentStatus";
     const user = await User.findById(req.user.id).select(fieldsToSelect);
 
     if (!user) {
@@ -43,9 +45,8 @@ router.put("/profile", protect, updateUserProfile);
 // Fetch user dashboard
 router.get("/dashboard", protect, async (req, res) => {
   try {
-    // Fetch user data for dashboard view
     const user = await User.findById(req.user.id)
-      .select("name phone packageName paymentStatus dueDate notifications");
+      .select("name phone cnic packageName paymentStatus dueDate notifications");
 
     if (!user) {
       return res.status(404).json({ status: "error", message: "User not found" });
@@ -67,6 +68,7 @@ router.get("/dashboard", protect, async (req, res) => {
         profile: {
           name: user.name,
           phone: user.phone,
+          cnic: user.cnic,
           packageName: user.packageName,
           paymentStatus: user.paymentStatus,
           dueDate: user.dueDate,

@@ -10,7 +10,16 @@ const auditLogSchema = new mongoose.Schema(
     action: {
       type: String,
       required: true,
-      enum: ["CREATE", "UPDATE", "DELETE", "READ", "LOGIN", "LOGOUT", "LOGIN_FAILED"], // Expanded action types
+      enum: [
+        "CREATE",
+        "UPDATE",
+        "DELETE",
+        "READ",
+        "LOGIN",
+        "LOGOUT",
+        "LOGIN_FAILED",
+        "RESET_PASSWORD", // Added for tracking password reset actions
+      ],
     },
     target: {
       type: String,

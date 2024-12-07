@@ -27,6 +27,12 @@ const protect = async (req, res, next) => {
           .json({ status: "error", error: "Unauthorized", message: "User not found." });
       }
 
+      if (!req.user.isActive) {
+        return res
+          .status(403)
+          .json({ status: "error", error: "Forbidden", message: "Account is inactive." });
+      }
+
       next(); // Proceed to the next middleware or route handler
     } else {
       return res
@@ -111,4 +117,24 @@ const roleHierarchy = (requiredRole) => {
   };
 };
 
-module.exports = { protect, adminOnly, roleCheck, roleHierarchy };
+/**
+ * Middleware to ensure the user has a valid CNIC.
+ */
+const requireCNIC = (req, res, next) => {
+  if (req.user && req.user.cnic) {
+    next(); // Proceed if CNIC is valid
+  } else {
+    console.warn(
+      `[ACCESS DENIED] User: ${req.user?.id || "Unknown"} | CNIC: ${
+        req.user?.cnic || "None"
+      } | Route: ${req.originalUrl}`
+    );
+    res.status(403).json({
+      status: "error",
+      error: "Forbidden",
+      message: "Access restricted to users with a valid CNIC.",
+    });
+  }
+};
+
+module.exports = { protect, adminOnly, roleCheck, roleHierarchy, requireCNIC };

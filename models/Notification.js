@@ -12,13 +12,18 @@ const notificationSchema = new mongoose.Schema(
     message: { type: String, required: true }, // Main content of the notification
     userId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
+      ref: "User", // References the User model for targeted notifications
       default: null, // Null for general announcements
+    },
+    cnic: {
+      type: String,
+      required: false, // Optional field for CNIC-targeted notifications
+      match: /^[0-9]{5}-[0-9]{7}-[0-9]{1}$/, // CNIC format validation
     },
     forAll: { type: Boolean, default: true }, // True for broadcast to all users
     audience: {
       type: String,
-      enum: ["all", "admins", "users"], // Example audience categories
+      enum: ["all", "admins", "users", "premium", "basic"], // Example audience categories
       default: "all",
     },
     priority: {
@@ -48,7 +53,7 @@ const notificationSchema = new mongoose.Schema(
 );
 
 // Add indexes for frequently queried fields
-notificationSchema.index({ userId: 1, forAll: 1, deleted: 1 });
+notificationSchema.index({ userId: 1, cnic: 1, forAll: 1, deleted: 1 });
 notificationSchema.index({ expiresAt: 1 });
 notificationSchema.index({ priority: 1 });
 
@@ -60,7 +65,7 @@ notificationSchema.virtual("isExpired").get(function () {
 // Pre-save middleware for logging
 notificationSchema.pre("save", function (next) {
   if (this.isNew) {
-    console.log(`New notification created: ${this.title}`);
+    console.log(`[NOTIFICATION CREATED]: Title: ${this.title}, Priority: ${this.priority}`);
   }
   next();
 });
@@ -69,13 +74,14 @@ notificationSchema.pre("save", function (next) {
 notificationSchema.statics.softDeleteExpired = async function () {
   const now = new Date();
   const result = await this.updateMany({ expiresAt: { $lt: now } }, { $set: { deleted: true } });
-  console.log(`Soft-deleted ${result.modifiedCount} expired notifications.`);
+  console.log(`[NOTIFICATION CLEANUP]: Soft-deleted ${result.modifiedCount} expired notifications.`);
 };
 
 // Static method to mark all notifications as read for a user
 notificationSchema.statics.markAllAsRead = async function (userId) {
   const query = userId ? { userId, read: false, deleted: false } : { forAll: true, read: false, deleted: false };
   const result = await this.updateMany(query, { $set: { read: true } });
+  console.log(`[NOTIFICATIONS READ]: Marked ${result.modifiedCount} notifications as read for user ID: ${userId || "all"}`);
   return result.modifiedCount;
 };
 

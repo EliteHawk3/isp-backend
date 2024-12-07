@@ -15,6 +15,9 @@ const registerSchema = Joi.object({
   phone: Joi.string().pattern(/^\d+$/).required(),
   password: Joi.string().min(6).max(16).required(),
   address: Joi.string().required(),
+  cnic: Joi.string()
+    .pattern(/^[0-9]{5}-[0-9]{7}-[0-9]{1}$/) // Validates CNIC format
+    .required(),
   securityQuestion: Joi.string().required(),
   securityAnswer: Joi.string().required(),
 });
@@ -38,11 +41,15 @@ const registerUser = async (req, res) => {
       return res.status(400).json({ message: error.details[0].message });
     }
 
-    const { name, phone, password, address, securityQuestion, securityAnswer } = req.body;
+    const { name, phone, password, address, cnic, securityQuestion, securityAnswer } = req.body;
 
-    const existingUser = await User.findOne({ phone });
+    const existingUser = await User.findOne({ $or: [{ phone }, { cnic }] });
     if (existingUser) {
-      return res.status(400).json({ message: "Phone number is already registered." });
+      return res.status(400).json({
+        message: existingUser.phone === phone
+          ? "Phone number is already registered."
+          : "CNIC is already registered.",
+      });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -51,6 +58,7 @@ const registerUser = async (req, res) => {
     const newUser = new User({
       name,
       phone,
+      cnic,
       password: hashedPassword,
       address,
       securityQuestion,
@@ -59,12 +67,13 @@ const registerUser = async (req, res) => {
 
     await newUser.save();
 
-    const { password: _, ...userDetails } = newUser._doc;
+    const { password: _, securityAnswer: __, ...userDetails } = newUser._doc;
     res.status(201).json({ message: "User registered successfully", user: userDetails });
   } catch (error) {
     handleServerError(res, error, "Failed to register user");
   }
 };
+
 // Login a User
 const loginUser = async (req, res) => {
   try {
@@ -85,7 +94,6 @@ const loginUser = async (req, res) => {
       return res.status(400).json({ message: "Invalid credentials." });
     }
 
-    // Convert the id to string before passing it to the generateToken function
     const token = generateToken(user._id.toString(), user.role || "user", user.phone);
 
     res.status(200).json({
@@ -95,6 +103,7 @@ const loginUser = async (req, res) => {
         id: user._id,
         name: user.name,
         phone: user.phone,
+        cnic: user.cnic,
         address: user.address,
         role: user.role,
       },
@@ -103,8 +112,6 @@ const loginUser = async (req, res) => {
     handleServerError(res, error, "Failed to log in user");
   }
 };
-
-
 
 // Reset Password with Security Question
 const resetPassword = async (req, res) => {
@@ -141,8 +148,8 @@ const resetPassword = async (req, res) => {
     }
 
     user.password = await bcrypt.hash(newPassword, 10);
-    user.securityAnswerAttempts = 0; // Reset attempts
-    user.accountLockedUntil = null; // Unlock account
+    user.securityAnswerAttempts = 0;
+    user.accountLockedUntil = null;
     await user.save();
 
     res.status(200).json({ message: "Password reset successfully." });
@@ -166,6 +173,10 @@ const updateUserProfile = async (req, res) => {
       return res.status(400).json({ message: "Address cannot be updated by the user." });
     }
 
+    if (req.body.cnic) {
+      return res.status(400).json({ message: "CNIC cannot be updated by the user." });
+    }
+
     if (name) user.name = name;
     if (phone) user.phone = phone;
 
@@ -176,6 +187,7 @@ const updateUserProfile = async (req, res) => {
       user: {
         name: updatedUser.name,
         phone: updatedUser.phone,
+        cnic: updatedUser.cnic,
         address: updatedUser.address,
       },
     });

@@ -14,6 +14,9 @@ const handleServerError = (res, error, customMessage = "Server error") => {
 const userValidationSchema = Joi.object({
   name: Joi.string().min(3).required(),
   phone: Joi.string().pattern(/^\d+$/).required(),
+  cnic: Joi.string()
+    .pattern(/^[0-9]{5}-[0-9]{7}-[0-9]{1}$/)
+    .required(),
   password: Joi.string().min(8).max(16).required(),
   address: Joi.string().required(),
   packageName: Joi.string().optional(),
@@ -29,11 +32,16 @@ const addUser = async (req, res) => {
     const { error } = userValidationSchema.validate(req.body);
     if (error) return res.status(400).json({ message: error.details[0].message });
 
-    const { name, phone, password, address, packageName, packageDetails } = req.body;
+    const { name, phone, cnic, password, address, packageName, packageDetails } = req.body;
 
     const existingUser = await User.findOne({ phone });
     if (existingUser) {
       return res.status(400).json({ message: "Phone number is already registered." });
+    }
+
+    const existingCnic = await User.findOne({ cnic });
+    if (existingCnic) {
+      return res.status(400).json({ message: "CNIC is already registered." });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -41,6 +49,7 @@ const addUser = async (req, res) => {
     const newUser = new User({
       name,
       phone,
+      cnic,
       password: hashedPassword,
       address,
       packageName: packageName || "Basic",
@@ -59,7 +68,7 @@ const addUser = async (req, res) => {
 
     res.status(201).json({
       message: "User added successfully",
-      user: { name: newUser.name, phone: newUser.phone, address: newUser.address },
+      user: { name: newUser.name, phone: newUser.phone, cnic: newUser.cnic, address: newUser.address },
     });
   } catch (error) {
     handleServerError(res, error, "Failed to add user");
@@ -70,15 +79,23 @@ const addUser = async (req, res) => {
 const updateUser = async (req, res) => {
   try {
     const { userId } = req.params;
-    const { name, phone, address, packageName, packageDetails } = req.body;
+    const { name, phone, cnic, address, packageName, packageDetails } = req.body;
 
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ message: "User not found." });
     }
 
+    if (cnic && cnic !== user.cnic) {
+      const existingCnic = await User.findOne({ cnic });
+      if (existingCnic) {
+        return res.status(400).json({ message: "CNIC is already registered." });
+      }
+    }
+
     if (name) user.name = name;
     if (phone) user.phone = phone;
+    if (cnic) user.cnic = cnic;
     if (address) user.address = address;
     if (packageName) user.packageName = packageName;
     if (packageDetails) user.packageDetails = packageDetails;
@@ -98,6 +115,7 @@ const updateUser = async (req, res) => {
       user: {
         name: updatedUser.name,
         phone: updatedUser.phone,
+        cnic: updatedUser.cnic,
         address: updatedUser.address,
         packageName: updatedUser.packageName,
         packageDetails: updatedUser.packageDetails,
@@ -149,7 +167,17 @@ const viewUsers = async (req, res) => {
 
     const totalUsers = await User.countDocuments({ isActive: true });
 
-    res.status(200).json({ totalUsers, users });
+    res.status(200).json({
+      totalUsers,
+      users: users.map((user) => ({
+        name: user.name,
+        phone: user.phone,
+        cnic: user.cnic,
+        address: user.address,
+        packageName: user.packageName,
+        packageDetails: user.packageDetails,
+      })),
+    });
   } catch (error) {
     handleServerError(res, error, "Failed to fetch users");
   }

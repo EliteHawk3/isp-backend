@@ -18,10 +18,11 @@ const supportRoutes = require("./routes/supportRoutes");
   }
 });
 
+// App Initialization
 const app = express();
+const isProduction = process.env.NODE_ENV === "production";
 
 // Middleware
-const isProduction = process.env.NODE_ENV === "production";
 app.use(cors({ origin: isProduction ? process.env.CORS_ORIGIN : "*" }));
 app.use(express.json());
 app.use(helmet());
@@ -40,7 +41,7 @@ const loginLimiter = rateLimit({
   max: 5, // Limit each IP to 5 login attempts per window
   message: "Too many login attempts, please try again later.",
 });
-app.use("/api/users/login", loginLimiter);
+app.use("/api/v1/users/login", loginLimiter);
 
 // Root Route
 app.get("/", (req, res) => {
@@ -64,12 +65,17 @@ app.get("/health", (req, res) => {
   });
 });
 
+// 404 Fallback Route
+app.use((req, res) => {
+  res.status(404).json({ message: "The requested endpoint does not exist." });
+});
+
 // Global Error Handler
 app.use((err, req, res, next) => {
-  console.error(err.stack);
+  console.error(`[ERROR]: ${err.message}`);
   res.status(err.status || 500).json({
     success: false,
-    error: err.message || "Internal Server Error",
+    message: err.message || "Internal Server Error",
   });
 });
 
@@ -84,20 +90,18 @@ const connectWithRetries = async () => {
   }
 };
 
-// Start with DB connection and then start server
+// Start with DB connection and then start the server
 connectWithRetries().then(() => {
-  // Start the server only once the DB connection is established
-  const server = app.listen(process.env.PORT || 5000, () => {
-    console.log(`Server is running on http://localhost:${process.env.PORT || 5000}`);
+  const PORT = process.env.PORT || 5000;
+
+  const server = app.listen(PORT, () => {
+    console.log(`Server is running on http://localhost:${PORT}`);
   });
 
   // Graceful Shutdown
   const gracefulShutdown = async (signal) => {
     console.log(`Received ${signal}. Closing server...`);
-    server.close(() => {
-      console.log("Server closed.");
-    });
-
+    server.close(() => console.log("Server closed."));
     await mongoose.connection.close();
     console.log("MongoDB connection closed.");
     process.exit(0);

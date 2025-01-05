@@ -8,13 +8,13 @@ const mongoose = require("mongoose");
 const connectDB = require("./config/db");
 const userRoutes = require("./routes/userRoutes");
 const adminRoutes = require("./routes/adminRoutes");
-const supportRoutes = require("./routes/supportRoutes");
 
-// Validate Environment Variables
-["MONGO_URI", "JWT_SECRET", "PORT", "NODE_ENV"].forEach((key) => {
+// Validate Required Environment Variables
+const requiredEnvVars = ["DB_USER", "DB_PASS", "DB_HOST", "DB_NAME", "JWT_SECRET", "PORT", "NODE_ENV"];
+requiredEnvVars.forEach((key) => {
   if (!process.env[key]) {
-    console.error(`Missing required environment variable: ${key}`);
-    process.exit(1);
+    console.error(`[ERROR] Missing environment variable: ${key}`);
+    process.exit(1); // Stop server if env variables are missing
   }
 });
 
@@ -25,21 +25,21 @@ const isProduction = process.env.NODE_ENV === "production";
 // Middleware
 app.use(cors({ origin: isProduction ? process.env.CORS_ORIGIN : "*" }));
 app.use(express.json());
-app.use(helmet());
-if (!isProduction) app.use(morgan("dev")); // Logging only in non-production
+app.use(helmet()); // Security headers
+if (!isProduction) app.use(morgan("dev")); // Logs for non-production
 
 // Rate Limiting
 const generalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per window
-  message: "Too many requests from this IP, please try again later.",
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW) * 60 * 1000 || 15 * 60 * 1000, // 15 minutes
+  max: parseInt(process.env.RATE_LIMIT_MAX) || 100, // Default limit
+  message: "Too many requests. Please try again later.",
 });
 app.use("/api", generalLimiter);
 
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // Limit each IP to 5 login attempts per window
-  message: "Too many login attempts, please try again later.",
+  max: 5, // Limit each IP to 5 login attempts
+  message: "Too many login attempts. Try again later.",
 });
 app.use("/api/v1/users/login", loginLimiter);
 
@@ -51,59 +51,64 @@ app.get("/", (req, res) => {
 // Routes
 app.use("/api/v1/users", userRoutes);
 app.use("/api/v1/admin", adminRoutes);
-app.use("/api/v1/support", supportRoutes);
 
 // Health Check Endpoint
-app.get("/health", (req, res) => {
+app.get("/api/v1/health", async (req, res) => {
   const dbStatus = mongoose.connection.readyState === 1 ? "healthy" : "unhealthy";
+
   res.status(200).json({
     message: "Server is running!",
     dbStatus,
     environment: process.env.NODE_ENV,
     uptime: process.uptime(),
     memoryUsage: process.memoryUsage(),
+    timestamp: new Date().toISOString(),
   });
 });
 
-// 404 Fallback Route
+// Fallback Route for Undefined Endpoints
 app.use((req, res) => {
-  res.status(404).json({ message: "The requested endpoint does not exist." });
+  console.warn(`[404 NOT FOUND ${new Date().toISOString()}] ${req.method} - ${req.originalUrl}`);
+  res.status(404).json({ status: "error", message: "Endpoint not found." });
 });
 
 // Global Error Handler
 app.use((err, req, res, next) => {
-  console.error(`[ERROR]: ${err.message}`);
+  console.error(`[ERROR ${new Date().toISOString()}]: ${err.message}`, {
+    route: req.originalUrl,
+    method: req.method,
+  });
   res.status(err.status || 500).json({
     success: false,
     message: err.message || "Internal Server Error",
   });
 });
 
-// Initialize Database with Retry Logic
+// Database Connection with Retry Logic
 const connectWithRetries = async () => {
   try {
-    await connectDB(); // Calls the retry-enabled connectDB function
-    console.log("Database connected successfully");
+    await connectDB();
+    console.log("[DB CONNECTED] Successfully connected to MongoDB.");
   } catch (error) {
-    console.error("Initial database connection failed, retrying...");
+    console.error("[DB CONNECTION FAILED] Retrying in 5 seconds...");
     setTimeout(connectWithRetries, 5000); // Retry every 5 seconds
   }
 };
 
-// Start with DB connection and then start the server
+// Server Startup
 connectWithRetries().then(() => {
   const PORT = process.env.PORT || 5000;
 
   const server = app.listen(PORT, () => {
-    console.log(`Server is running on http://localhost:${PORT}`);
+    console.log(`[SERVER STARTED] Running on http://localhost:${PORT}`);
   });
 
   // Graceful Shutdown
   const gracefulShutdown = async (signal) => {
-    console.log(`Received ${signal}. Closing server...`);
-    server.close(() => console.log("Server closed."));
+    console.log(`[SHUTDOWN SIGNAL RECEIVED] ${signal}. Closing server...`);
+    server.close(() => console.log("[SERVER CLOSED]"));
     await mongoose.connection.close();
-    console.log("MongoDB connection closed.");
+    console.log("[DB DISCONNECTED] MongoDB connection closed.");
     process.exit(0);
   };
 

@@ -1,26 +1,21 @@
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 
-/**
- * Extract and verify the JWT from the Authorization header.
- * @param {string} authorizationHeader - The Authorization header value.
- * @returns {object} - The decoded token payload.
- */
-const verifyToken = (authorizationHeader) => {
-  if (!authorizationHeader) {
-    throw new Error("Authorization header is missing");
-  }
+// Utility for consistent error handling
+const handleAuthError = (res, status, message) => {
+  res.status(status).json({ status: "error", error: "Unauthorized", message });
+};
 
-  const token = authorizationHeader.split(" ")[1]; // Format: Bearer <token>
-  if (!token) {
-    throw new Error("Invalid token format. Expected 'Bearer <token>'");
-  }
+// Utility to verify and decode JWT token
+const verifyToken = (authorizationHeader) => {
+  if (!authorizationHeader) throw new Error("Authorization header is missing");
+
+  const token = authorizationHeader.split(" ")[1]; // Expect 'Bearer <token>'
+  if (!token) throw new Error("Invalid token format. Expected 'Bearer <token>'");
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    if (!decoded.id) {
-      throw new Error("Invalid token payload: User ID is missing");
-    }
+    if (!decoded.id) throw new Error("Invalid token payload: User ID is missing");
     return decoded;
   } catch (err) {
     if (err.name === "TokenExpiredError") {
@@ -30,50 +25,48 @@ const verifyToken = (authorizationHeader) => {
   }
 };
 
-/**
- * Middleware to protect routes (requires authentication).
- */
+// Middleware to protect routes (requires authentication)
 const protect = async (req, res, next) => {
   try {
     const decoded = verifyToken(req.headers.authorization);
 
-    // Fetch user details from the database
-    const user = await User.findById(decoded.id).select("name phone cnic isActive role");
+    // Fetch user details
+    const user = await User.findById(decoded.id).select(
+      "name phone cnic isActive role"
+    );
     if (!user || !user.isActive) {
       throw new Error("User account not found or is inactive");
     }
 
-    // Attach user details to the request object
+    // Attach user data to the request object
     req.user = {
       id: decoded.id,
       role: decoded.role,
       name: user.name,
       phone: user.phone,
-      cnic: user.cnic, // Include CNIC for auditing or logging
+      cnic: user.cnic,
     };
 
-    next(); // Proceed to the next middleware or route handler
+    next(); // Proceed to the next middleware
   } catch (err) {
-    console.error(`[AUTH ERROR]: ${err.message}`, {
+    console.error(`[AUTH ERROR ${new Date().toISOString()}]: ${err.message}`, {
       route: req.originalUrl,
       method: req.method,
-      token: req.headers.authorization,
+      ip: req.ip,
     });
-    res.status(401).json({
-      status: "error",
-      error: "Unauthorized",
-      message: err.message,
-    });
+    handleAuthError(res, 401, err.message);
   }
 };
 
-/**
- * Middleware for admin-only routes.
- */
+// Middleware for admin-only routes
 const adminOnly = (req, res, next) => {
   if (req.user && req.user.role === "admin") {
     return next();
   }
+
+  console.warn(
+    `[ACCESS DENIED ${new Date().toISOString()}] IP: ${req.ip} | User ID: ${req.user?.id || "Unknown"} | Role: ${req.user?.role || "None"} | Route: ${req.originalUrl}`
+  );
   res.status(403).json({
     status: "error",
     error: "Forbidden",
@@ -81,15 +74,16 @@ const adminOnly = (req, res, next) => {
   });
 };
 
-/**
- * Middleware for dynamic role-based access control.
- * @param {...string} roles - Allowed roles for the route.
- */
+// Middleware for dynamic role-based access control
 const roleCheck = (...roles) => {
   return (req, res, next) => {
     if (req.user && roles.includes(req.user.role)) {
-      return next();
+      return next(); // Proceed if role matches
     }
+
+    console.warn(
+      `[ACCESS DENIED ${new Date().toISOString()}] IP: ${req.ip} | User ID: ${req.user?.id || "Unknown"} | Role: ${req.user?.role || "None"} | Route: ${req.originalUrl} | Required Roles: ${roles.join(", ")}`
+    );
     res.status(403).json({
       status: "error",
       error: "Forbidden",

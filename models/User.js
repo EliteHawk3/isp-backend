@@ -1,13 +1,16 @@
 const mongoose = require("mongoose");
+const bcrypt = require("bcrypt");
 
+// User Schema
 const userSchema = new mongoose.Schema(
   {
+    // Basic Information
     name: {
       type: String,
       required: true,
       trim: true,
       validate: {
-        validator: (v) => /^[a-zA-Z\s]+$/.test(v), // Only letters and spaces
+        validator: (v) => /^[a-zA-Z\s]+$/.test(v),
         message: (props) => `${props.value} is not a valid name!`,
       },
     },
@@ -15,126 +18,106 @@ const userSchema = new mongoose.Schema(
       type: String,
       unique: true,
       required: true,
-      match: /^\+?[0-9]{10,15}$/, // Accepts phone numbers with or without country codes
+      match: /^\+?[1-9][0-9]{9,14}$/, // Validate phone with optional country code
     },
-    address: { type: String, required: true, trim: true },
+    password: { type: String, required: true, select: false }, // Hidden by default
+
+    // Role and Access Control
+    role: { type: String, enum: ["user", "admin"], default: "user" },
+    isActive: { type: Boolean, default: true },
+    deletedAt: { type: Date, default: null }, // Soft delete timestamp
+
+    // Security Questions
+    securityQuestion: { type: String, required: true },
+    securityAnswer: { type: String, required: true, select: false },
+    securityAnswerAttempts: { type: Number, default: 0 },
+    accountLockedUntil: { type: Date, default: null },
+
+    // User-Specific Fields (conditional for role: "user")
+    address: { type: String, trim: true },
     cnic: {
       type: String,
-      required: true,
       unique: true,
-      match: /^[0-9]{5}-[0-9]{7}-[0-9]{1}$/, // CNIC format validation: XXXXX-XXXXXXX-X
-      validate: {
-        validator: (v) => /^[0-9]{5}-[0-9]{7}-[0-9]{1}$/.test(v),
-        message: (props) => `${props.value} is not a valid CNIC!`,
-      },
-    },
-    password: { type: String, required: true, select: false },
-    packageId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Package", // References a dynamic Package model
-      default: null,
+      match: /^[0-9]{5}-[0-9]{7}-[0-9]{1}$/, // CNIC validation
     },
     packageName: { type: String, default: "Basic" },
-    packageDetails: {
-      speed: { type: String, default: "N/A" },
-      price: { type: Number, default: 0 },
+    packageSpeed: { type: String, default: "N/A" },
+    installationCosts: {
+      wireCost: { type: Number, default: 0 },
+      modemFee: { type: Number, default: 0 },
+      promo: {
+        type: Number,
+        default: 0,
+        min: [0, "Promo must be at least 0%."],
+        max: [100, "Promo cannot exceed 100%."],
+      },
     },
+
+    // Payment Tracking
     dueDate: { type: Date, default: null },
-    lastPaidDate: { type: Date, default: null }, // Tracks the last payment date
+    lastPaidDate: { type: Date, default: null },
     paymentStatus: {
       type: String,
       enum: ["paid", "pending", "overdue"],
       default: "pending",
     },
-    notifications: [
-      {
-        notificationId: { type: mongoose.Schema.Types.ObjectId, ref: "Notification" },
-        read: { type: Boolean, default: false },
-        sentAt: { type: Date, default: Date.now }, // Timestamp for when the notification was sent
-      },
-    ],
-    role: {
-      type: String,
-      enum: ["user", "admin"],
-      default: "user",
-    },
-    isActive: { type: Boolean, default: true },
-    deletedAt: { type: Date, default: null }, // For soft delete
 
-    // Security Question and Answer for Password Reset
-    securityQuestion: { type: String, required: true }, // Question
-    securityAnswer: { type: String, required: true, select: false }, // Answer (hashed)
+    // Notifications
+    unreadCount: { type: Number, default: 0 }, // Tracks unread notifications
   },
-  {
-    timestamps: true, // Automatically manages createdAt and updatedAt fields
-  }
+  { timestamps: true } // Adds createdAt and updatedAt
 );
 
-// Index for optimized queries
-userSchema.index({ isActive: 1, phone: 1 });
-userSchema.index({ cnic: 1 }); // Index for CNIC field
-userSchema.index({ deletedAt: 1 }); // For soft delete optimization
-userSchema.index({ paymentStatus: 1, dueDate: 1 }); // Payment-related queries
-
-// Virtual property for full package info
-userSchema.virtual("fullPackageInfo").get(function () {
-  return `${this.packageName} - ${this.packageDetails.speed} - $${this.packageDetails.price}`;
-});
-
-// Virtual property for unread notifications count
-userSchema.virtual("unreadNotificationsCount").get(function () {
-  return this.notifications
-    ? this.notifications.filter((n) => !n.read).length
-    : 0;
-});
-
-// Static method to find active users
-userSchema.statics.findActiveUsers = function () {
-  return this.find({ isActive: true, deletedAt: null });
-};
-
-// Static method to find users with overdue payments
-userSchema.statics.findOverdueUsers = function () {
-  return this.find({
-    isActive: true,
-    deletedAt: null,
-    paymentStatus: "overdue",
-  });
-};
-
-// Pre-save middleware to clean up expired data
-userSchema.pre("save", function (next) {
-  // Automatically flag users as "overdue" if their dueDate is in the past
-  if (
-    this.dueDate &&
-    new Date(this.dueDate) < new Date() &&
-    this.paymentStatus !== "paid"
-  ) {
-    this.paymentStatus = "overdue";
+// Conditional Requirements for Role: "user"
+userSchema.pre("validate", function (next) {
+  if (this.role === "user") {
+    if (!this.address) return next(new Error("Address is required for users."));
+    if (!this.cnic) return next(new Error("CNIC is required for users."));
+    if (!this.packageName) return next(new Error("Package Name is required for users."));
+    if (!this.packageSpeed) return next(new Error("Package Speed is required for users."));
+    if (!this.installationCosts.wireCost && this.installationCosts.wireCost !== 0)
+      return next(new Error("Wire Cost is required for users."));
+    if (!this.installationCosts.modemFee && this.installationCosts.modemFee !== 0)
+      return next(new Error("Modem Fee is required for users."));
   }
-
   next();
 });
 
-// Middleware to enforce unique phone and CNIC validation with readable errors
-userSchema.post("save", function (error, doc, next) {
-  if (error.name === "MongoServerError" && error.code === 11000) {
-    if (error.keyValue.cnic) {
-      next(new Error("CNIC number already exists. Please use a different CNIC."));
-    } else if (error.keyValue.phone) {
-      next(new Error("Phone number already exists. Please use a different phone number."));
-    } else {
-      next(error);
+// Indexes for optimization
+userSchema.index({ isActive: 1, phone: 1 });
+userSchema.index({ cnic: 1 });
+userSchema.index({ deletedAt: 1 });
+userSchema.index({ paymentStatus: 1, dueDate: 1 });
+userSchema.index({ role: 1 });
+
+// Pre-save hook for payment updates
+userSchema.pre("save", function (next) {
+  if (this.role === "user") {
+    const { wireCost, modemFee, promo } = this.installationCosts;
+    const discount = (promo / 100) * (wireCost + modemFee);
+    const totalCost = wireCost + modemFee - discount;
+
+    // Mark overdue
+    if (
+      this.dueDate &&
+      new Date(this.dueDate) < new Date() &&
+      this.paymentStatus !== "paid" &&
+      totalCost > 0
+    ) {
+      this.paymentStatus = "overdue";
     }
-  } else {
-    next(error);
   }
+  next();
 });
 
-// Pre-remove hook for soft delete
-userSchema.pre("remove", function (next) {
-  this.deletedAt = new Date();
-  this.isActive = false;
+// Pre-save hook to hash passwords
+userSchema.pre("save", async function (next) {
+  if (this.isModified("password") && !this.password.startsWith("$2b$")) {
+    this.password = await bcrypt.hash(this.password, 10);
+  }
+  if (this.isModified("securityAnswer") && !this.securityAnswer.startsWith("$2b$")) {
+    this.securityAnswer = await bcrypt.hash(this.securityAnswer, 10);
+  }
   next();
 });
 
@@ -143,13 +126,27 @@ userSchema.pre("find", function () {
   this.where({ deletedAt: null });
 });
 
-// Static method for paginated user results
-userSchema.statics.paginateUsers = async function (filter, page = 1, limit = 10) {
-  const skip = (page - 1) * limit;
-  const query = { ...filter, deletedAt: null }; // Exclude soft-deleted users
-  const users = await this.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit);
-  const total = await this.countDocuments(query);
-  return { users, total, currentPage: page, totalPages: Math.ceil(total / limit) };
-};
+// Middleware for unique constraints
+userSchema.post("save", function (error, doc, next) {
+  if (error.name === "MongoServerError" && error.code === 11000) {
+    if (error.keyValue.cnic) {
+      next(new Error("CNIC already exists. Use a different one."));
+    } else if (error.keyValue.phone) {
+      next(new Error("Phone number already exists."));
+    } else {
+      next(error);
+    }
+  } else {
+    next(error);
+  }
+});
 
+// Soft delete method
+userSchema.pre("remove", function (next) {
+  this.deletedAt = new Date();
+  this.isActive = false;
+  next();
+});
+
+// Export the model
 module.exports = mongoose.model("User", userSchema);

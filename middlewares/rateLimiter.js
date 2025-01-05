@@ -1,86 +1,68 @@
-const rateLimit = require("express-rate-limit");
+const mongoose = require("mongoose");
 
-// Helper function for dynamic rate limits
-const dynamicRateLimit = (req) => {
-  try {
-    if (req.user && req.user.role === "admin") {
-      console.log(`[RATE LIMIT] Admin user detected: ID=${req.user.id}`);
-      return 100; // Higher limit for admins
-    }
-    if (req.user && req.user.cnic) {
-      console.log(`[RATE LIMIT] Verified user with CNIC detected: ID=${req.user.id}, CNIC=${req.user.cnic}`);
-      return 10; // Moderate limit for verified users with CNIC
-    }
-    console.log(`[RATE LIMIT] Standard user or unauthenticated request from IP: ${req.ip}`);
-    return 3; // Default limit for regular users or unauthenticated requests
-  } catch (err) {
-    console.error(`[RATE LIMIT ERROR] Error determining dynamic limit: ${err.message}`);
-    return 3; // Fallback limit
+// Notification Schema
+const notificationSchema = new mongoose.Schema(
+  {
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true }, // Linked User ID
+    title: { type: String, required: true, trim: true }, // Notification title
+    message: { type: String, required: true, trim: true }, // Notification message
+    type: { type: String, enum: ["info", "warning", "alert"], default: "info" }, // Notification type
+    priority: { type: Number, default: 1 }, // Priority for sorting (1 = low, 5 = high)
+    read: { type: Boolean, default: false }, // Read status
+    deleted: { type: Boolean, default: false }, // Soft delete status
+    sentAt: { type: Date, default: Date.now }, // Sent timestamp
+  },
+  {
+    timestamps: true, // Automatically adds createdAt and updatedAt fields
   }
-};
+);
 
-// Function to check if an IP is whitelisted
-const isWhitelisted = (ip) => {
-  const whitelist = process.env.RATE_LIMIT_WHITELIST
-    ? process.env.RATE_LIMIT_WHITELIST.split(",")
-    : [];
-  const isAllowed = whitelist.includes(ip);
-  if (isAllowed) {
-    console.log(`[RATE LIMIT] Whitelisted IP: ${ip}`);
-  }
-  return isAllowed;
-};
+// Indexes for optimized queries
+notificationSchema.index({ userId: 1, read: 1, sentAt: -1 });
+notificationSchema.index({ type: 1, priority: -1 });
 
-// Custom abuse logger
-const abuseLogger = (req) => {
-  console.warn(
-    `[RATE LIMIT] Exceeded: IP=${req.ip} | Endpoint=${req.originalUrl} | Method=${req.method} | User ID=${req.user?.id || "Unauthenticated"} | CNIC=${req.user?.cnic || "N/A"} | Time=${new Date().toISOString()}`
+// Static method to mark notifications as read
+notificationSchema.statics.markAsRead = async function (userId, notificationIds) {
+  return this.updateMany(
+    { _id: { $in: notificationIds }, userId },
+    { $set: { read: true } }
   );
 };
 
-// Password Reset Rate Limiter
-const passwordResetLimiter = rateLimit({
-  windowMs: 24 * 60 * 60 * 1000, // 24-hour window
-  max: (req) => dynamicRateLimit(req), // Dynamic rate limit based on user role or IP
-  standardHeaders: true, // Include standard rate limit headers
-  legacyHeaders: false, // Disable legacy headers
-  message: {
-    message: "Too many password reset attempts. Please try again after 24 hours or contact admin support.",
-  },
-  skip: (req) => isWhitelisted(req.ip), // Skip rate limiting for whitelisted IPs
-  handler: (req, res, next, options) => {
-    abuseLogger(req); // Log abuse attempts
-    res.status(options.statusCode).json(options.message); // Send rate-limit response
-  },
-});
+// Static method to fetch unread notifications
+notificationSchema.statics.fetchUnread = async function (userId, page = 1, limit = 10) {
+  const skip = (page - 1) * limit;
+  const query = { userId, read: false, deleted: false };
 
-// Global Rate Limiter for All Requests
-const globalRateLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15-minute window
-  max: 100, // Default limit for all requests
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    message: "Too many requests. Please try again later.",
-  },
-  skip: (req) => isWhitelisted(req.ip), // Skip rate limiting for whitelisted IPs
-  handler: (req, res, next, options) => {
-    abuseLogger(req); // Log abuse attempts
-    res.status(options.statusCode).json(options.message);
-  },
-});
+  const notifications = await this.find(query).sort({ priority: -1, sentAt: -1 }).skip(skip).limit(limit);
+  const total = await this.countDocuments(query);
 
-// Wrapper to apply the password reset limiter
-const rateLimitMiddleware = (req, res, next) => {
-  passwordResetLimiter(req, res, (err) => {
-    if (err) {
-      console.error(`[RATE LIMIT ERROR] ${err.message}`);
-    }
-    next();
-  });
+  return { notifications, total, currentPage: page, totalPages: Math.ceil(total / limit) };
 };
 
-module.exports = {
-  passwordResetLimiter: rateLimitMiddleware,
-  globalRateLimiter,
+// Static method for paginated notifications
+notificationSchema.statics.fetchPaginated = async function (userId, page = 1, limit = 10) {
+  const skip = (page - 1) * limit;
+  const query = { userId, deleted: false };
+
+  const notifications = await this.find(query).sort({ sentAt: -1 }).skip(skip).limit(limit);
+  const total = await this.countDocuments(query);
+
+  return { notifications, total, currentPage: page, totalPages: Math.ceil(total / limit) };
 };
+
+// Soft delete notifications
+notificationSchema.statics.softDelete = async function (userId, notificationIds) {
+  return this.updateMany(
+    { _id: { $in: notificationIds }, userId },
+    { $set: { deleted: true } }
+  );
+};
+
+// Clear all notifications for a user
+notificationSchema.statics.clearAll = async function (userId) {
+  return this.updateMany({ userId }, { $set: { deleted: true } });
+};
+
+// Export the model
+module.exports = mongoose.model("Notification", notificationSchema);

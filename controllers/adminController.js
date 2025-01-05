@@ -1,16 +1,15 @@
 const User = require("../models/User");
 const Notification = require("../models/Notification");
 const bcrypt = require("bcrypt");
-const AuditLog = require("../models/AuditLog");
 const Joi = require("joi");
 
-// Utility function for handling server errors
-const handleServerError = (res, error, customMessage = "Server error") => {
-  console.error(`[SERVER ERROR]: ${error.message}`);
-  res.status(500).json({ message: customMessage });
+// Utility for handling server errors
+const handleServerError = (res, error, message = "Server error") => {
+  console.error(`[SERVER ERROR ${new Date().toISOString()}]: ${error.message}`);
+  res.status(500).json({ status: "error", message });
 };
 
-// Validation schemas
+// Validation Schemas
 const userValidationSchema = Joi.object({
   name: Joi.string().min(3).required(),
   phone: Joi.string().pattern(/^\d+$/).required(),
@@ -19,56 +18,96 @@ const userValidationSchema = Joi.object({
     .required(),
   password: Joi.string().min(8).max(16).required(),
   address: Joi.string().required(),
-  packageName: Joi.string().optional(),
-  packageDetails: Joi.object({
-    speed: Joi.string().optional(),
-    price: Joi.number().optional(),
-  }).optional(),
+  packageName: Joi.string().required(),
+  packageSpeed: Joi.string().required(),
+  installationCosts: Joi.object({
+    wireCost: Joi.number().min(0).required(),
+    modemFee: Joi.number().min(0).required(),
+    promo: Joi.number().min(0).max(100).required(),
+  }).required(),
+  role: Joi.string().valid("user").default("user"),
+  securityQuestion: Joi.string().required(),
+  securityAnswer: Joi.string().required(),
 });
 
-// Add a new user
+const adminValidationSchema = Joi.object({
+  name: Joi.string().min(3).required(),
+  phone: Joi.string().pattern(/^\d+$/).required(),
+  password: Joi.string().min(8).max(16).required(),
+  role: Joi.string().valid("admin").default("admin"),
+  securityQuestion: Joi.string().required(),
+  securityAnswer: Joi.string().required(),
+});
+
+const updateUserValidationSchema = Joi.object({
+  name: Joi.string().min(3),
+  phone: Joi.string().pattern(/^\d+$/),
+  cnic: Joi.string().pattern(/^[0-9]{5}-[0-9]{7}-[0-9]{1}$/),
+  address: Joi.string(),
+  packageName: Joi.string(),
+  packageSpeed: Joi.string(),
+  installationCosts: Joi.object({
+    wireCost: Joi.number().min(0),
+    modemFee: Joi.number().min(0),
+    promo: Joi.number().min(0).max(100),
+  }),
+  role: Joi.string().valid("user"),
+});
+
+// Add a new user or admin
 const addUser = async (req, res) => {
   try {
-    const { error } = userValidationSchema.validate(req.body);
+    const { role } = req.body;
+
+    // Choose schema based on role
+    const schema = role === "admin" ? adminValidationSchema : userValidationSchema;
+    const { error } = schema.validate(req.body);
     if (error) return res.status(400).json({ message: error.details[0].message });
 
-    const { name, phone, cnic, password, address, packageName, packageDetails } = req.body;
+    const {
+      name,
+      phone,
+      cnic,
+      password,
+      address,
+      packageName,
+      packageSpeed,
+      installationCosts,
+      securityQuestion,
+      securityAnswer,
+    } = req.body;
 
-    const existingUser = await User.findOne({ phone });
+    // Check for duplicates
+    const existingUser = await User.findOne({ $or: [{ phone }, { cnic }] });
     if (existingUser) {
-      return res.status(400).json({ message: "Phone number is already registered." });
+      return res.status(400).json({ message: "Phone number or CNIC already registered." });
     }
 
-    const existingCnic = await User.findOne({ cnic });
-    if (existingCnic) {
-      return res.status(400).json({ message: "CNIC is already registered." });
-    }
-
+    // Hash password and security answer
     const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedAnswer = await bcrypt.hash(securityAnswer, 10);
 
+    // Create user/admin
     const newUser = new User({
       name,
       phone,
       cnic,
       password: hashedPassword,
       address,
-      packageName: packageName || "Basic",
-      packageDetails: packageDetails || { speed: "N/A", price: 0 },
+      packageName,
+      packageSpeed,
+      installationCosts,
+      role,
+      securityQuestion,
+      securityAnswer: hashedAnswer,
     });
 
     await newUser.save();
 
-    // Add audit log
-    await AuditLog.create({
-      adminId: req.user.id,
-      action: "CREATE",
-      target: "User",
-      description: `Added user ${name} (${phone})`,
-    });
-
     res.status(201).json({
+      status: "success",
       message: "User added successfully",
-      user: { name: newUser.name, phone: newUser.phone, cnic: newUser.cnic, address: newUser.address },
+      data: { name: newUser.name, phone: newUser.phone, role: newUser.role },
     });
   } catch (error) {
     handleServerError(res, error, "Failed to add user");
@@ -79,148 +118,47 @@ const addUser = async (req, res) => {
 const updateUser = async (req, res) => {
   try {
     const { userId } = req.params;
-    const { name, phone, cnic, address, packageName, packageDetails } = req.body;
+    const { error } = updateUserValidationSchema.validate(req.body);
+    if (error) return res.status(400).json({ message: error.details[0].message });
 
     const user = await User.findById(userId);
-    if (!user) {
-      return res.status(404).json({ message: "User not found." });
+    if (!user) return res.status(404).json({ message: "User not found." });
+
+    if (req.body.password) {
+      req.body.password = await bcrypt.hash(req.body.password, 10);
     }
 
-    if (cnic && cnic !== user.cnic) {
-      const existingCnic = await User.findOne({ cnic });
-      if (existingCnic) {
-        return res.status(400).json({ message: "CNIC is already registered." });
-      }
-    }
-
-    if (name) user.name = name;
-    if (phone) user.phone = phone;
-    if (cnic) user.cnic = cnic;
-    if (address) user.address = address;
-    if (packageName) user.packageName = packageName;
-    if (packageDetails) user.packageDetails = packageDetails;
-
+    Object.assign(user, req.body);
     const updatedUser = await user.save();
 
-    // Add audit log
-    await AuditLog.create({
-      adminId: req.user.id,
-      action: "UPDATE",
-      target: "User",
-      description: `Updated user ${user.name} (${user.phone})`,
-    });
-
     res.status(200).json({
-      message: "User updated successfully",
-      user: {
-        name: updatedUser.name,
-        phone: updatedUser.phone,
-        cnic: updatedUser.cnic,
-        address: updatedUser.address,
-        packageName: updatedUser.packageName,
-        packageDetails: updatedUser.packageDetails,
-      },
+      status: "success",
+      message: "User updated successfully.",
+      data: updatedUser,
     });
   } catch (error) {
     handleServerError(res, error, "Failed to update user");
   }
 };
 
-// Deactivate (soft delete) a user
+// Deactivate user (soft delete)
 const deactivateUser = async (req, res) => {
   try {
     const { userId } = req.params;
-
     const user = await User.findById(userId);
-    if (!user) {
-      return res.status(404).json({ message: "User not found." });
-    }
+    if (!user) return res.status(404).json({ message: "User not found." });
 
     user.isActive = false;
     user.deletedAt = new Date();
     await user.save();
 
-    // Add audit log
-    await AuditLog.create({
-      adminId: req.user.id,
-      action: "DELETE",
-      target: "User",
-      description: `Deactivated user ${user.name} (${user.phone})`,
-    });
-
-    res.status(200).json({ message: "User deactivated successfully" });
+    res.status(200).json({ status: "success", message: "User deactivated successfully" });
   } catch (error) {
     handleServerError(res, error, "Failed to deactivate user");
   }
 };
 
-// View all users (with pagination)
-const viewUsers = async (req, res) => {
-  try {
-    const { page = 1, limit = 10 } = req.query;
-
-    const users = await User.find({ isActive: true })
-      .select("-password")
-      .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(parseInt(limit));
-
-    const totalUsers = await User.countDocuments({ isActive: true });
-
-    res.status(200).json({
-      totalUsers,
-      users: users.map((user) => ({
-        name: user.name,
-        phone: user.phone,
-        cnic: user.cnic,
-        address: user.address,
-        packageName: user.packageName,
-        packageDetails: user.packageDetails,
-      })),
-    });
-  } catch (error) {
-    handleServerError(res, error, "Failed to fetch users");
-  }
-};
-
-// Send a notification to a user
-const sendNotification = async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const { title, message } = req.body;
-
-    if (!title || !message || title.length > 100 || message.length > 500) {
-      return res.status(400).json({
-        message: "Title (max 100 characters) and message (max 500 characters) are required.",
-      });
-    }
-
-    const user = await User.findById(userId);
-    if (!user) {
-      return res.status(404).json({ message: "User not found." });
-    }
-
-    const notification = new Notification({ title, message, user: userId, read: false });
-    await notification.save();
-
-    user.notifications.push(notification._id);
-    await user.save();
-
-    // Add audit log
-    await AuditLog.create({
-      adminId: req.user.id,
-      action: "CREATE",
-      target: "Notification",
-      description: `Sent notification to user ${user.name} (${user.phone}): ${title}`,
-    });
-
-    res.status(201).json({ message: "Notification sent successfully" });
-  } catch (error) {
-    handleServerError(res, error, "Failed to send notification");
-  }
-};
-
-// View reports (payment status, package details, etc.)
+// View reports
 const viewReports = async (req, res) => {
   try {
     const reports = await User.aggregate([
@@ -228,23 +166,86 @@ const viewReports = async (req, res) => {
         $group: {
           _id: "$paymentStatus",
           totalUsers: { $sum: 1 },
-          packageNames: { $addToSet: "$packageName" },
         },
       },
-      { $sort: { totalUsers: -1 } }, // Sort by total users in descending order
     ]);
 
-    res.status(200).json({ reports });
+    res.status(200).json({ status: "success", data: reports });
   } catch (error) {
     handleServerError(res, error, "Failed to fetch reports");
   }
 };
 
+// Send notification
+const sendNotification = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { title, message } = req.body;
+
+    const notification = new Notification({ userId, title, message });
+    await notification.save();
+
+    res.status(201).json({ status: "success", message: "Notification sent successfully" });
+  } catch (error) {
+    handleServerError(res, error, "Failed to send notification");
+  }
+};
+
+// View users with filters
+const viewUsers = async (req, res) => {
+  try {
+    const { page = 1, limit = 10, role } = req.query;
+    const filters = { isActive: true };
+    if (role) filters.role = role;
+
+    const users = await User.find(filters)
+      .skip((page - 1) * limit)
+      .limit(parseInt(limit));
+
+    res.status(200).json({ status: "success", data: users });
+  } catch (error) {
+    handleServerError(res, error, "Failed to fetch users");
+  }
+};
+
+// View admins
+const viewAdmins = async (req, res) => {
+  try {
+    const admins = await User.find({ role: "admin" }).select("-password");
+    res.status(200).json({ status: "success", data: admins });
+  } catch (error) {
+    handleServerError(res, error, "Failed to fetch admins");
+  }
+};
+
+const viewAnalytics = async (req, res) => {
+  try {
+    const totalUsers = await User.countDocuments({ isActive: true });
+    const overduePayments = await User.countDocuments({ paymentStatus: "overdue" });
+    const pendingPayments = await User.countDocuments({ paymentStatus: "pending" });
+
+    res.status(200).json({
+      status: "success",
+      data: {
+        totalUsers,
+        overduePayments,
+        pendingPayments,
+      },
+    });
+  } catch (error) {
+    handleServerError(res, error, "Failed to fetch analytics data");
+  }
+};
+
+// Export the function
 module.exports = {
+  viewAnalytics, // <-- Ensure this export exists
   addUser,
   updateUser,
   deactivateUser,
   viewUsers,
   sendNotification,
   viewReports,
+  viewAdmins,
 };
+

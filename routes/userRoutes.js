@@ -3,64 +3,121 @@ const {
   registerUser,
   loginUser,
   updateUserProfile,
+  resetPassword,
 } = require("../controllers/userController");
 const { protect } = require("../middlewares/authMiddleware");
 const User = require("../models/User");
+const Notification = require("../models/Notification");
 
+// Initialize router
 const router = express.Router();
 
-// Utility function for error handling
-const handleServerError = (res, error, customMessage = "Server error") => {
-  console.error(`[SERVER ERROR]: ${error.message}`);
-  res.status(500).json({ status: "error", message: customMessage });
+// Utility for handling server errors
+const handleServerError = (res, error, message = "Server error") => {
+  console.error(`[SERVER ERROR ${new Date().toISOString()}]: ${error.message}`);
+  res.status(500).json({ status: "error", message });
 };
 
-// Public Routes
-// Register a new user
+/** 
+ * Public Routes
+ */
+// User registration
 router.post("/register", registerUser);
-// Login a user
+
+// User login
 router.post("/login", loginUser);
 
-// Protected Routes
+// Reset password with security question
+router.post("/reset-password", resetPassword);
+
+/** 
+ * Protected Routes
+ */
 // Fetch user profile
 router.get("/profile", protect, async (req, res) => {
   try {
-    const fieldsToSelect =
-      "name phone address cnic packageName packageDetails dueDate paymentStatus";
-    const user = await User.findById(req.user.id).select(fieldsToSelect);
+    const user = await User.findById(req.user.id).select(
+      "name phone address cnic packageName packageSpeed installationCosts dueDate paymentStatus"
+    );
 
     if (!user) {
-      return res.status(404).json({ status: "error", message: "User not found" });
+      return res.status(404).json({
+        status: "error",
+        message: "User profile not found.",
+      });
     }
 
-    res.status(200).json({ status: "success", data: user });
+    // Calculate total cost
+    const { wireCost, modemFee, promo } = user.installationCosts;
+    const discount = (promo / 100) * (wireCost + modemFee);
+    const totalCost = wireCost + modemFee - discount;
+
+    res.status(200).json({
+      status: "success",
+      data: {
+        ...user.toObject(),
+        totalCost: totalCost.toFixed(2),
+      },
+    });
   } catch (err) {
-    handleServerError(res, err, "Error fetching user profile");
+    handleServerError(res, err, "Failed to fetch user profile");
   }
 });
 
 // Update user profile
 router.put("/profile", protect, updateUserProfile);
-
-// Fetch user dashboard
+// Fetch user dashboard data
 router.get("/dashboard", protect, async (req, res) => {
   try {
-    const user = await User.findById(req.user.id)
-      .select("name phone cnic packageName paymentStatus dueDate notifications");
+    // Fetch user profile
+    const user = await User.findById(req.user.id).select(
+      "name phone cnic packageName packageSpeed installationCosts paymentStatus dueDate role"
+    );
 
     if (!user) {
-      return res.status(404).json({ status: "error", message: "User not found" });
+      return res.status(404).json({
+        status: "error",
+        message: "User not found.",
+      });
     }
 
-    // Calculate unread notifications count
-    const unreadNotificationsCount = user.notifications.filter(
-      (n) => !n.read
-    ).length;
+    // Handle admin case: Skip fields like packages, costs, and due dates
+    if (user.role === "admin") {
+      return res.status(200).json({
+        status: "success",
+        data: {
+          profile: {
+            name: user.name,
+            phone: user.phone,
+            role: user.role,
+          },
+          notifications: {
+            total: 0,
+            unreadCount: 0,
+            list: [],
+            totalPages: 0,
+          },
+        },
+      });
+    }
 
-    // Paginate notifications
+    // Calculate unread notifications
     const { page = 1, limit = 5 } = req.query;
-    const skip = (page - 1) * limit;
-    const paginatedNotifications = user.notifications.slice(skip, skip + parseInt(limit));
+    const notifications = await Notification.find({ userId: req.user.id })
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(parseInt(limit));
+
+    const totalNotifications = await Notification.countDocuments({ userId: req.user.id });
+    const unreadCount = await Notification.countDocuments({
+      userId: req.user.id,
+      read: false,
+    });
+
+    // Calculate total cost
+    const { wireCost, modemFee, promo } = user.installationCosts;
+    const discount = (promo / 100) * (wireCost + modemFee);
+    const totalCost = wireCost + modemFee - discount;
 
     res.status(200).json({
       status: "success",
@@ -70,30 +127,33 @@ router.get("/dashboard", protect, async (req, res) => {
           phone: user.phone,
           cnic: user.cnic,
           packageName: user.packageName,
+          packageSpeed: user.packageSpeed,
           paymentStatus: user.paymentStatus,
           dueDate: user.dueDate,
+          totalCost: totalCost.toFixed(2),
         },
         notifications: {
-          total: user.notifications.length,
-          unreadCount: unreadNotificationsCount,
-          list: paginatedNotifications,
-          pagination: {
-            currentPage: parseInt(page),
-            totalPages: Math.ceil(user.notifications.length / limit),
-          },
+          total: totalNotifications,
+          unreadCount,
+          list: notifications,
+          totalPages: Math.ceil(totalNotifications / limit),
         },
       },
     });
   } catch (err) {
-    handleServerError(res, err, "Error fetching dashboard data");
+    handleServerError(res, err, "Failed to fetch dashboard data");
   }
 });
 
-// Fallback route for undefined endpoints
+/** 
+ * Fallback Route
+ * Handles undefined routes
+ */
 router.all("*", (req, res) => {
+  console.warn(`[404 NOT FOUND ${new Date().toISOString()}] ${req.method} - ${req.originalUrl}`);
   res.status(404).json({
     status: "error",
-    message: "The requested endpoint does not exist. Please check the URL.",
+    message: "Endpoint not found. Please check the URL.",
   });
 });
 

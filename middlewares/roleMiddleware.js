@@ -1,6 +1,11 @@
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 
+// Utility function for error response
+const handleAuthError = (res, status, message) => {
+  res.status(status).json({ status: "error", error: "Unauthorized", message });
+};
+
 /**
  * Middleware to protect routes (requires authentication).
  */
@@ -22,28 +27,26 @@ const protect = async (req, res, next) => {
       req.user = await User.findById(decoded.id).select("-password");
 
       if (!req.user) {
-        return res
-          .status(401)
-          .json({ status: "error", error: "Unauthorized", message: "User not found." });
+        return handleAuthError(res, 401, "User not found.");
       }
 
       if (!req.user.isActive) {
-        return res
-          .status(403)
-          .json({ status: "error", error: "Forbidden", message: "Account is inactive." });
+        return handleAuthError(res, 403, "Account is inactive.");
       }
 
       next(); // Proceed to the next middleware or route handler
     } else {
-      return res
-        .status(401)
-        .json({ status: "error", error: "Unauthorized", message: "Token is missing." });
+      return handleAuthError(res, 401, "Token is missing.");
     }
   } catch (error) {
     console.error(`[AUTH ERROR] ${error.message}`);
-    res
-      .status(401)
-      .json({ status: "error", error: "Unauthorized", message: "Invalid token." });
+
+    // Handle specific token errors
+    if (error.name === "TokenExpiredError") {
+      return handleAuthError(res, 401, "Token has expired. Please log in again.");
+    }
+
+    handleAuthError(res, 401, "Invalid token.");
   }
 };
 
@@ -59,9 +62,11 @@ const adminOnly = (req, res, next) => {
         req.user?.role || "None"
       } | Route: ${req.originalUrl}`
     );
-    res
-      .status(403)
-      .json({ status: "error", error: "Forbidden", message: "Access restricted to admins only." });
+    res.status(403).json({
+      status: "error",
+      error: "Forbidden",
+      message: "Access restricted to admins only.",
+    });
   }
 };
 
@@ -88,53 +93,4 @@ const roleCheck = (...roles) => {
   };
 };
 
-/**
- * Middleware for role hierarchy-based access.
- * @param {string} requiredRole - Minimum role required for access.
- * Example: If the role hierarchy is ["admin", "moderator", "user"],
- * specifying "moderator" allows both "admin" and "moderator" roles.
- */
-const roleHierarchy = (requiredRole) => {
-  const roles = ["admin", "moderator", "user"]; // Define role hierarchy
-  return (req, res, next) => {
-    const userRoleIndex = roles.indexOf(req.user?.role);
-    const requiredRoleIndex = roles.indexOf(requiredRole);
-
-    if (userRoleIndex !== -1 && userRoleIndex <= requiredRoleIndex) {
-      next(); // Proceed if user's role is equal or higher in the hierarchy
-    } else {
-      console.warn(
-        `[ACCESS DENIED] User: ${req.user?.id || "Unknown"} | Role: ${
-          req.user?.role || "None"
-        } | Route: ${req.originalUrl} | Required Role: ${requiredRole}`
-      );
-      res.status(403).json({
-        status: "error",
-        error: "Forbidden",
-        message: `Access restricted to ${requiredRole} or higher roles.`,
-      });
-    }
-  };
-};
-
-/**
- * Middleware to ensure the user has a valid CNIC.
- */
-const requireCNIC = (req, res, next) => {
-  if (req.user && req.user.cnic) {
-    next(); // Proceed if CNIC is valid
-  } else {
-    console.warn(
-      `[ACCESS DENIED] User: ${req.user?.id || "Unknown"} | CNIC: ${
-        req.user?.cnic || "None"
-      } | Route: ${req.originalUrl}`
-    );
-    res.status(403).json({
-      status: "error",
-      error: "Forbidden",
-      message: "Access restricted to users with a valid CNIC.",
-    });
-  }
-};
-
-module.exports = { protect, adminOnly, roleCheck, roleHierarchy, requireCNIC };
+module.exports = { protect, adminOnly, roleCheck };

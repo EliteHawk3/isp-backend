@@ -1,4 +1,5 @@
-require("dotenv").config();
+import dotenv from "dotenv";
+
 import express from "express";
 import cors from "cors";
 import morgan from "morgan";
@@ -12,7 +13,6 @@ import packageRoutes from "./routes/packageRoutes.js";
 import notificationRoutes from "./routes/notificationRoutes.js";
 import taskRoutes from "./routes/taskRoutes.js";
 import auditLogRoutes from "./routes/auditLogRoutes.js";
-
 dotenv.config();
 
 const app = express();
@@ -38,6 +38,10 @@ app.use("/api/audit-logs", auditLogRoutes);
 app.get("/", (req, res) => {
   res.json({ message: "ISP Backend API is running!" });
 });
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () =>
+  console.log(`Server running on http://localhost:${PORT}`)
+);
 
 // ❌ REMOVE `app.listen()`, and instead EXPORT the app
 export default app;

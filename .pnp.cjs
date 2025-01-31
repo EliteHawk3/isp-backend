@@ -35,10 +35,11 @@ const RAW_RUNTIME_STATE =
           ["express", "npm:4.21.2"],\
           ["helmet", "npm:8.0.0"],\
           ["jsonwebtoken", "npm:9.0.2"],\
-          ["mongodb", "virtual:46ee8d4aeb5f33f08ac650667dab939467f1ccc6d248fea8e167323d53cfc7cd1b69eb26c55b5d54a3cb42516e693d500940716295c512d9bd5018e6b696fdcf#npm:6.12.0"],\
+          ["mongodb", "virtual:6ebf820e1a3641f9e730842c9aec88aaf149747ed6ad2e322d8074cef522050e980aaf5f67e45fda21cc6f1c0b377fa719908727488edacd6bc530dc7f1e5f3d#npm:6.13.0"],\
           ["mongoose", "npm:8.9.5"],\
           ["morgan", "npm:1.10.0"],\
           ["nodemon", "npm:3.1.9"],\
+          ["uuid", "npm:11.0.5"],\
           ["vercel", "npm:39.4.2"]\
         ],\
         "linkType": "SOFT"\
@@ -943,10 +944,10 @@ const RAW_RUNTIME_STATE =
       }]\
     ]],\
     ["bson", [\
-      ["npm:6.10.1", {\
-        "packageLocation": "../../AppData/Local/Yarn/Berry/cache/bson-npm-6.10.1-ce7e3d7ed8-10c0.zip/node_modules/bson/",\
+      ["npm:6.10.2", {\
+        "packageLocation": "../../AppData/Local/Yarn/Berry/cache/bson-npm-6.10.2-caafffc2b2-10c0.zip/node_modules/bson/",\
         "packageDependencies": [\
-          ["bson", "npm:6.10.1"]\
+          ["bson", "npm:6.10.2"]\
         ],\
         "linkType": "HARD"\
       }]\
@@ -2452,10 +2453,11 @@ const RAW_RUNTIME_STATE =
           ["express", "npm:4.21.2"],\
           ["helmet", "npm:8.0.0"],\
           ["jsonwebtoken", "npm:9.0.2"],\
-          ["mongodb", "virtual:46ee8d4aeb5f33f08ac650667dab939467f1ccc6d248fea8e167323d53cfc7cd1b69eb26c55b5d54a3cb42516e693d500940716295c512d9bd5018e6b696fdcf#npm:6.12.0"],\
+          ["mongodb", "virtual:6ebf820e1a3641f9e730842c9aec88aaf149747ed6ad2e322d8074cef522050e980aaf5f67e45fda21cc6f1c0b377fa719908727488edacd6bc530dc7f1e5f3d#npm:6.13.0"],\
           ["mongoose", "npm:8.9.5"],\
           ["morgan", "npm:1.10.0"],\
           ["nodemon", "npm:3.1.9"],\
+          ["uuid", "npm:11.0.5"],\
           ["vercel", "npm:39.4.2"]\
         ],\
         "linkType": "SOFT"\
@@ -2974,6 +2976,13 @@ const RAW_RUNTIME_STATE =
         ],\
         "linkType": "SOFT"\
       }],\
+      ["npm:6.13.0", {\
+        "packageLocation": "../../AppData/Local/Yarn/Berry/cache/mongodb-npm-6.13.0-e93e5cb91c-10c0.zip/node_modules/mongodb/",\
+        "packageDependencies": [\
+          ["mongodb", "npm:6.13.0"]\
+        ],\
+        "linkType": "SOFT"\
+      }],\
       ["virtual:46ee8d4aeb5f33f08ac650667dab939467f1ccc6d248fea8e167323d53cfc7cd1b69eb26c55b5d54a3cb42516e693d500940716295c512d9bd5018e6b696fdcf#npm:6.12.0", {\
         "packageLocation": "./.yarn/__virtual__/mongodb-virtual-4c65c5322f/3/AppData/Local/Yarn/Berry/cache/mongodb-npm-6.12.0-2698c6b153-10c0.zip/node_modules/mongodb/",\
         "packageDependencies": [\
@@ -2988,7 +2997,47 @@ const RAW_RUNTIME_STATE =
           ["@types/mongodb-js__zstd", null],\
           ["@types/snappy", null],\
           ["@types/socks", null],\
-          ["bson", "npm:6.10.1"],\
+          ["bson", "npm:6.10.2"],\
+          ["gcp-metadata", null],\
+          ["kerberos", null],\
+          ["mongodb-client-encryption", null],\
+          ["mongodb-connection-string-url", "npm:3.0.2"],\
+          ["snappy", null],\
+          ["socks", null]\
+        ],\
+        "packagePeers": [\
+          "@aws-sdk/credential-providers",\
+          "@mongodb-js/zstd",\
+          "@types/aws-sdk__credential-providers",\
+          "@types/gcp-metadata",\
+          "@types/kerberos",\
+          "@types/mongodb-client-encryption",\
+          "@types/mongodb-js__zstd",\
+          "@types/snappy",\
+          "@types/socks",\
+          "gcp-metadata",\
+          "kerberos",\
+          "mongodb-client-encryption",\
+          "snappy",\
+          "socks"\
+        ],\
+        "linkType": "HARD"\
+      }],\
+      ["virtual:6ebf820e1a3641f9e730842c9aec88aaf149747ed6ad2e322d8074cef522050e980aaf5f67e45fda21cc6f1c0b377fa719908727488edacd6bc530dc7f1e5f3d#npm:6.13.0", {\
+        "packageLocation": "./.yarn/__virtual__/mongodb-virtual-713a5c598e/3/AppData/Local/Yarn/Berry/cache/mongodb-npm-6.13.0-e93e5cb91c-10c0.zip/node_modules/mongodb/",\
+        "packageDependencies": [\
+          ["mongodb", "virtual:6ebf820e1a3641f9e730842c9aec88aaf149747ed6ad2e322d8074cef522050e980aaf5f67e45fda21cc6f1c0b377fa719908727488edacd6bc530dc7f1e5f3d#npm:6.13.0"],\
+          ["@aws-sdk/credential-providers", null],\
+          ["@mongodb-js/saslprep", "npm:1.1.9"],\
+          ["@mongodb-js/zstd", null],\
+          ["@types/aws-sdk__credential-providers", null],\
+          ["@types/gcp-metadata", null],\
+          ["@types/kerberos", null],\
+          ["@types/mongodb-client-encryption", null],\
+          ["@types/mongodb-js__zstd", null],\
+          ["@types/snappy", null],\
+          ["@types/socks", null],\
+          ["bson", "npm:6.10.2"],\
           ["gcp-metadata", null],\
           ["kerberos", null],\
           ["mongodb-client-encryption", null],\
@@ -3031,7 +3080,7 @@ const RAW_RUNTIME_STATE =
         "packageLocation": "../../AppData/Local/Yarn/Berry/cache/mongoose-npm-8.9.5-46ee8d4aeb-10c0.zip/node_modules/mongoose/",\
         "packageDependencies": [\
           ["mongoose", "npm:8.9.5"],\
-          ["bson", "npm:6.10.1"],\
+          ["bson", "npm:6.10.2"],\
           ["kareem", "npm:2.6.3"],\
           ["mongodb", "virtual:46ee8d4aeb5f33f08ac650667dab939467f1ccc6d248fea8e167323d53cfc7cd1b69eb26c55b5d54a3cb42516e693d500940716295c512d9bd5018e6b696fdcf#npm:6.12.0"],\
           ["mpath", "npm:0.9.0"],\
@@ -4388,6 +4437,13 @@ const RAW_RUNTIME_STATE =
       }]\
     ]],\
     ["uuid", [\
+      ["npm:11.0.5", {\
+        "packageLocation": "../../AppData/Local/Yarn/Berry/cache/uuid-npm-11.0.5-685b7c1023-10c0.zip/node_modules/uuid/",\
+        "packageDependencies": [\
+          ["uuid", "npm:11.0.5"]\
+        ],\
+        "linkType": "HARD"\
+      }],\
       ["npm:3.3.2", {\
         "packageLocation": "../../AppData/Local/Yarn/Berry/cache/uuid-npm-3.3.2-62715051ac-10c0.zip/node_modules/uuid/",\
         "packageDependencies": [\

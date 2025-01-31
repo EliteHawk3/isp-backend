@@ -55,6 +55,11 @@ export const updateUser = async (req, res) => {
     user.discount = req.body.discount || user.discount;
     user.discountType = req.body.discountType || user.discountType;
 
+    // ✅ Allow user to change their password (if provided)
+    if (req.body.password) {
+      user.password = await bcrypt.hash(req.body.password, 10); // ✅ Hash new password before saving
+    }
+
     const updatedUser = await user.save();
     res.json(updatedUser);
     await createAuditLog(req.user.id, "Update User", "Old Data", "New Data");
@@ -87,6 +92,57 @@ export const deleteUser = async (req, res) => {
     await user.remove();
     res.json({ message: "User deleted successfully" });
     await createAuditLog(req.user.id, "Delete User", "Active", "Deleted");
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+// @desc    Create a new user
+// @route   POST /api/users
+// ✅ Implement `generatePassword` function using the frontend logic
+const generatePassword = (cnic, name) => {
+  const lastFourCnic = cnic.replace(/\D/g, "").slice(-4); // ✅ Extract last 4 digits of CNIC
+  const cleanName = name.replace(/[^A-Za-z]/g, "").toLowerCase(); // ✅ Remove non-letters
+  const firstFiveChars = cleanName.slice(0, 5); // ✅ Get first 5 characters (or less if name is short)
+  const symbols = ["#", "$", "%", "&", "*"]; // ✅ Predefined set of symbols
+  const randomSymbol = symbols[Math.floor(Math.random() * symbols.length)]; // ✅ Pick a random symbol
+
+  return `${lastFourCnic}${randomSymbol}${firstFiveChars}`; // ✅ Combine elements
+};
+
+// @desc    Create a new user with an auto-generated password
+// @route   POST /api/users
+export const addUser = async (req, res) => {
+  try {
+    const {
+      name,
+      phone,
+      cnic,
+      address,
+      packageId,
+      installationCost,
+      discount,
+      discountType,
+      role,
+    } = req.body;
+
+    // ✅ Generate the password using the frontend logic
+    const plainPassword = generatePassword(cnic, name);
+    const hashedPassword = await bcrypt.hash(plainPassword, 10); // ✅ Hash the generated password
+
+    const user = await User.create({
+      name,
+      phone,
+      cnic,
+      address,
+      packageId,
+      installationCost,
+      discount,
+      discountType,
+      role,
+      password: hashedPassword, // ✅ Store hashed password
+    });
+
+    res.status(201).json({ message: "User created successfully", user });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

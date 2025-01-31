@@ -19,6 +19,7 @@ const paymentSchema = new mongoose.Schema({
   date: { type: Date, default: Date.now }, // Actual date payment is created
   dueDate: { type: Date, required: true }, // Payment deadline
   paidDate: { type: Date }, // When the payment was actually paid
+  deleted: { type: Boolean, default: false }, // ✅ Soft delete flag
 });
 
 const Payment = mongoose.model("Payment", paymentSchema);

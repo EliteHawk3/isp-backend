@@ -57,24 +57,26 @@ const registerUser = async (req, res) => {
 // @route   POST /api/auth/login
 const loginUser = async (req, res) => {
   try {
-    const { phone, password } = req.body;
-    console.log("🔹 Login attempt for phone:", phone);
-    console.log("🔹 Password entered:", password);
+    const { name, password } = req.body;
+    console.log("🔹 Login attempt for name:", name);
+    console.log("🔹 Password entered by user:", password);
 
-    const user = await User.findOne({ phone });
+    const user = await User.findOne({ name });
     if (!user) {
       console.log("❌ User not found in DB");
-      return res.status(401).json({ message: "Invalid phone or password" });
+      return res.status(401).json({ message: "No user with this name" });
     }
 
-    console.log("✅ User found:", user);
+    console.log("✅ User found in DB:", user);
+    console.log("🔹 Hashed Password in Database:", user.password);
 
+    // Compare passwords using bcrypt
     const isMatch = await bcrypt.compare(password, user.password);
     console.log("🔹 Password Match Result:", isMatch);
 
     if (!isMatch) {
       console.log("❌ Password does not match");
-      return res.status(401).json({ message: "Invalid phone or password" });
+      return res.status(401).json({ message: "Incorrect password" });
     }
 
     console.log("✅ Password is correct. Logging in...");

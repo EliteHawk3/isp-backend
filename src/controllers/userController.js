@@ -45,6 +45,7 @@ export const updateUser = async (req, res) => {
     if (req.user.role !== "admin" && req.user.id !== req.params.id) {
       return res.status(403).json({ message: "Access denied" });
     }
+    const previousPackageId = user.packageId; // Store the old package ID
 
     // Update fields
     user.name = req.body.name || user.name;
@@ -61,8 +62,50 @@ export const updateUser = async (req, res) => {
     }
 
     const updatedUser = await user.save();
+
+    // ✅ If the user switched packages, update only unpaid payments
+    if (
+      previousPackageId &&
+      previousPackageId.toString() !== user.packageId.toString()
+    ) {
+      console.log(`User ${user._id} switched packages. Updating payments...`);
+
+      const newPackage = await Package.findById(user.packageId);
+      if (!newPackage) {
+        return res.status(400).json({ message: "New package not found" });
+      }
+
+      const now = new Date();
+      const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+
+      // ✅ Update only pending/overdue payments from this month onward
+      await Payment.updateMany(
+        {
+          userId: user._id,
+          status: { $in: ["Pending", "Overdue"] }, // Only unpaid payments
+          date: { $gte: currentMonthStart }, // Payments from this month and beyond
+        },
+        {
+          $set: {
+            packageId: newPackage._id,
+            packageName: newPackage.name,
+            costAtPaymentTime: newPackage.cost,
+            discountedAmount: Math.max(
+              newPackage.cost - (user.discount || 0),
+              0
+            ),
+          },
+        }
+      );
+
+      console.log(
+        `Updated payments for user ${user._id} with the new package.`
+      );
+    }
+    // ✅ Automatically sync all payments to avoid duplicates & missing payments
+    await syncPayments();
     res.json(updatedUser);
-    await createAuditLog(req.user.id, "Update User", "Old Data", "New Data");
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
